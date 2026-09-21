@@ -93,6 +93,10 @@ APP_ALIASES = {
     "task manager": ["taskmgr.exe"],
     "explorer": ["explorer.exe"],
     "file explorer": ["explorer.exe"],
+    "chrome": ["chrome.exe"],
+    "google chrome": ["chrome.exe"],
+    "edge": ["msedge.exe"],
+    "microsoft edge": ["msedge.exe"],
 }
 
 ANDROID_ALIASES = {
@@ -155,13 +159,28 @@ def cmd(command: str, timeout: int = 60) -> str:
     return (completed.stdout or "CMD completed.").strip()
 
 
+def open_windows_camera() -> str:
+    if platform.system() != "Windows":
+        raise RuntimeError("The Windows Camera app is only available on Windows.")
+    try:
+        os.startfile("microsoft.windows.camera:")
+        return "Windows Camera opened."
+    except Exception as exc:
+        raise RuntimeError(f"Could not launch Windows Camera: {exc}")
+
+
 def open_app(name: str) -> str:
     key = name.strip().lower()
-    if key not in APP_ALIASES:
-        # Let Windows resolve installed applications for explicitly requested app names.
-        subprocess.Popen(["cmd.exe", "/d", "/c", "start", "", name], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        return f"Opened {name}."
-    subprocess.Popen(APP_ALIASES[key])
+    if key in {"camera", "windows camera", "camera app"}:
+        return open_windows_camera()
+    command = APP_ALIASES.get(key)
+    if command:
+        try:
+            subprocess.Popen(command, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            return f"Opened {name}."
+        except FileNotFoundError:
+            pass
+    subprocess.Popen(["explorer.exe", name], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     return f"Opened {name}."
 
 
@@ -223,6 +242,47 @@ def click_xy(x: int, y: int) -> str:
         raise RuntimeError("Install pyautogui for keyboard/mouse control.")
     pyautogui.click(x, y)
     return f"Clicked {x}, {y}."
+
+
+def move_mouse(x: int, y: int, duration: float = 0.15) -> str:
+    if not pyautogui:
+        raise RuntimeError("Install pyautogui for mouse control.")
+    pyautogui.moveTo(int(x), int(y), duration=max(0, float(duration)))
+    return f"Mouse moved to {x}, {y}."
+
+
+def double_click(x: int, y: int) -> str:
+    if not pyautogui:
+        raise RuntimeError("Install pyautogui for mouse control.")
+    pyautogui.doubleClick(int(x), int(y), interval=0.08)
+    return f"Double-clicked {x}, {y}."
+
+
+def right_click(x: int, y: int) -> str:
+    if not pyautogui:
+        raise RuntimeError("Install pyautogui for mouse control.")
+    pyautogui.rightClick(int(x), int(y))
+    return f"Right-clicked {x}, {y}."
+
+
+def scroll_mouse(amount: int) -> str:
+    if not pyautogui:
+        raise RuntimeError("Install pyautogui for mouse control.")
+    pyautogui.scroll(int(amount))
+    return f"Scrolled {amount}."
+
+
+def clipboard_get() -> str:
+    if not pyperclip:
+        raise RuntimeError("pyperclip is not installed.")
+    return pyperclip.paste() or "(clipboard is empty)"
+
+
+def clipboard_set(text: str) -> str:
+    if not pyperclip:
+        raise RuntimeError("pyperclip is not installed.")
+    pyperclip.copy(text)
+    return "Clipboard updated."
 
 
 def screenshot(path: Optional[str] = None) -> str:
@@ -297,35 +357,64 @@ def delete_file(path: str, allow: bool = False) -> str:
     return f"Deleted {target}"
 
 
-def camera_indices(max_index: int = 10) -> list[int]:
+def _camera_backends():
+    if platform.system() == "Windows":
+        return [("DirectShow", cv2.CAP_DSHOW), ("MediaFoundation", cv2.CAP_MSMF), ("Default", 0)]
+    return [("Default", 0)]
+
+
+def _open_camera_capture(index: int):
     if not cv2:
-        raise RuntimeError("OpenCV is not installed. Install requirements-local.txt.")
+        raise RuntimeError("OpenCV is not installed. Run setup_sanvi.bat again.")
+    errors = []
+    for backend_name, backend in _camera_backends():
+        cap = None
+        try:
+            cap = cv2.VideoCapture(index, backend)
+            if cap is not None and cap.isOpened():
+                for _ in range(3):
+                    cap.read()
+                return cap, backend_name
+            errors.append(backend_name)
+        except Exception as exc:
+            errors.append(f"{backend_name}: {exc}")
+        finally:
+            if cap is not None and not cap.isOpened():
+                cap.release()
+    raise RuntimeError(
+        f"Cannot open camera {index}. Tried {', '.join(errors) or 'available backends'}. "
+        "Check Windows Settings > Privacy & security > Camera, close Teams/Zoom/Camera, "
+        "and make sure the webcam is connected."
+    )
+
+
+def camera_indices(max_index: int = 10) -> list[int]:
     found = []
     for index in range(max_index):
-        cap = cv2.VideoCapture(index, cv2.CAP_DSHOW if platform.system() == "Windows" else 0)
-        ok = cap.isOpened()
-        if ok:
+        try:
+            cap, _ = _open_camera_capture(index)
             found.append(index)
-        cap.release()
+            cap.release()
+        except Exception:
+            continue
+    if not found:
+        raise RuntimeError("No camera detected. Check Windows camera permissions and close other camera apps.")
     return found
 
 
 def camera_photo(index: int = 0, path: str = "") -> str:
-    if not cv2:
-        raise RuntimeError("OpenCV is not installed. Install requirements-local.txt.")
-    backend = cv2.CAP_DSHOW if platform.system() == "Windows" else 0
-    cap = cv2.VideoCapture(index, backend)
-    if not cap.isOpened():
-        raise RuntimeError(f"Cannot open camera {index}. Check Windows camera permission and that no other app is using it.")
-    ok, frame = cap.read()
-    cap.release()
-    if not ok:
-        raise RuntimeError("Camera opened but did not return a frame.")
+    cap, backend = _open_camera_capture(index)
+    try:
+        ok, frame = cap.read()
+    finally:
+        cap.release()
+    if not ok or frame is None:
+        raise RuntimeError(f"Camera {index} opened with {backend}, but returned no frame.")
     target = Path(path).expanduser().resolve() if path else Path.cwd() / "runtime" / "camera" / f"photo_{int(time.time())}.jpg"
     target.parent.mkdir(parents=True, exist_ok=True)
-    cv2.imwrite(str(target), frame)
-    return f"Camera photo saved to {target}"
-
+    if not cv2.imwrite(str(target), frame):
+        raise RuntimeError(f"Could not write camera image to {target}")
+    return f"Camera photo saved to {target} (backend: {backend})."
 
 
 def camera_analyze(question: str = "What do you see in front of the camera?") -> str:
@@ -333,28 +422,27 @@ def camera_analyze(question: str = "What do you see in front of the camera?") ->
         raise RuntimeError("Camera vision planner is unavailable.")
     target = Path.cwd() / "runtime" / "camera" / "latest.jpg"
     camera_photo(0, str(target))
-    answer = describe_image(str(target), question)
-    return answer or "I could not determine what is visible."
+    return describe_image(str(target), question) or "I could not determine what is visible."
+
 
 def camera_preview(index: int = 0) -> str:
-    if not cv2:
-        raise RuntimeError("OpenCV is not installed. Install requirements-local.txt.")
-    backend = cv2.CAP_DSHOW if platform.system() == "Windows" else 0
-    cap = cv2.VideoCapture(index, backend)
-    if not cap.isOpened():
-        raise RuntimeError(f"Cannot open camera {index}. Check Windows camera permission.")
-    log("Camera preview active. Press Q in the preview window to close it.")
-    while True:
-        ok, frame = cap.read()
-        if not ok:
-            break
-        cv2.imshow("SANVI Camera", frame)
-        if cv2.waitKey(1) & 0xFF == ord("q"):
-            break
-    cap.release()
-    cv2.destroyAllWindows()
+    cap, backend = _open_camera_capture(index)
+    log(f"Camera preview active using {backend}. Press Q or Esc in the preview window to close it.")
+    try:
+        while True:
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                raise RuntimeError("Camera stopped returning frames.")
+            cv2.imshow("SANVI Camera", frame)
+            if (cv2.waitKey(1) & 0xFF) in (ord("q"), 27):
+                break
+    finally:
+        cap.release()
+        try:
+            cv2.destroyWindow("SANVI Camera")
+        except Exception:
+            cv2.destroyAllWindows()
     return "Camera preview closed."
-
 
 def android_ui_dump() -> str:
     raw = adb("shell", "uiautomator", "dump", "/sdcard/window.xml")
@@ -503,6 +591,12 @@ def execute_ai_action(tool: str, args: dict, original_command: str, allow_danger
         "type_text": lambda: type_text(str(args.get("text", ""))),
         "press_keys": lambda: press_keys(str(args.get("keys", ""))),
         "click_xy": lambda: click_xy(int(args.get("x", 0)), int(args.get("y", 0))),
+        "move_mouse": lambda: move_mouse(int(args.get("x", 0)), int(args.get("y", 0))),
+        "double_click": lambda: double_click(int(args.get("x", 0)), int(args.get("y", 0))),
+        "right_click": lambda: right_click(int(args.get("x", 0)), int(args.get("y", 0))),
+        "scroll": lambda: scroll_mouse(int(args.get("amount", 0))),
+        "clipboard_get": lambda: clipboard_get(),
+        "clipboard_set": lambda: clipboard_set(str(args.get("text", ""))),
         "screenshot": lambda: screenshot(),
         "camera_photo": lambda: camera_photo(int(args.get("index", 0)), str(args.get("path", ""))),
         "camera_preview": lambda: camera_preview(int(args.get("index", 0))),
@@ -628,7 +722,7 @@ def execute_one(command: str, allow_dangerous: bool = False) -> str:
         return json.dumps(camera_indices())
 
     if low in {"open camera", "launch camera", "start camera"}:
-        return camera_preview(0)
+        return open_windows_camera()
 
     m = re.match(r"^camera\s+(?:photo|capture)(?:\s+(\d+))?(?:\s+(.+))?$", x, re.I)
     if m:
@@ -647,7 +741,11 @@ def execute_one(command: str, allow_dangerous: bool = False) -> str:
     m = re.match(r"^(?:open|launch|start)\s+(.+?)\s*$", x, re.I)
     if m:
         target = m.group(1).strip()
-        if target.lower() in {"chrome", "edge", "browser"}:
+        if target.lower() in {"chrome", "google chrome"}:
+            return open_app("chrome")
+        if target.lower() in {"edge", "microsoft edge"}:
+            return open_app("edge")
+        if target.lower() == "browser":
             return browser_open("https://www.google.com")
         return open_app(target)
 
@@ -674,6 +772,29 @@ def execute_one(command: str, allow_dangerous: bool = False) -> str:
     m = re.match(r"^click\s+(\d+)\s*,?\s*(\d+)$", x, re.I)
     if m:
         return click_xy(int(m.group(1)), int(m.group(2)))
+
+    m = re.match(r"^(?:move|move mouse|move cursor)\s+(\d+)\s*,?\s*(\d+)$", x, re.I)
+    if m:
+        return move_mouse(int(m.group(1)), int(m.group(2)))
+
+    m = re.match(r"^(?:double click|double-click)\s+(\d+)\s*,?\s*(\d+)$", x, re.I)
+    if m:
+        return double_click(int(m.group(1)), int(m.group(2)))
+
+    m = re.match(r"^(?:right click|right-click)\s+(\d+)\s*,?\s*(\d+)$", x, re.I)
+    if m:
+        return right_click(int(m.group(1)), int(m.group(2)))
+
+    m = re.match(r"^scroll\s+(-?\d+)$", x, re.I)
+    if m:
+        return scroll_mouse(int(m.group(1)))
+
+    m = re.match(r"^clipboard\s+(?:set|write)\s+(.+)$", x, re.I | re.S)
+    if m:
+        return clipboard_set(m.group(1))
+
+    if low in {"clipboard get", "read clipboard", "copy clipboard"}:
+        return clipboard_get()
 
     if low in {"take screenshot", "screenshot", "capture screen"}:
         return screenshot()
