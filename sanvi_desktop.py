@@ -692,6 +692,13 @@ def execute_one(command: str, allow_dangerous: bool = False) -> str:
     if m:
         return execute_one(m.group(1), allow_dangerous=True)
 
+    if ai_plan:
+        try:
+            return execute_ai_task(x, allow_dangerous=allow_dangerous)
+        except RuntimeError as exc:
+            if "AI planner is unavailable" not in str(exc):
+                raise
+
     raise ValueError(
         "I understand the command, but no executor matched it yet. "
         "Try a complete command such as: "
