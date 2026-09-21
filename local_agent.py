@@ -1,41 +1,88 @@
-"""SANVI Windows local execution agent."""
-import os,re,time,subprocess,platform
-from pathlib import Path
+"""
+SANVI hosted-bridge worker.
+
+This worker is optional. The recommended mode is sanvi_desktop.py directly.
+When connected to Render, commands submitted by the hosted API are executed
+by the same native Windows executor instead of the old 5-command demo.
+"""
+
+from __future__ import annotations
+
+import os
+import time
+
 import httpx
-SERVER=os.getenv("SANVI_SERVER_URL","").rstrip("/")
-TOKEN=os.getenv("SANVI_AGENT_TOKEN","").strip()
-def h(): return {"X-SANVI-Agent-Token":TOKEN}
-def report(tid,status,msg):
-    with httpx.Client(timeout=10) as c:
-        c.post(f"{SERVER}/api/agent/result",headers=h(),json={"task_id":tid,"status":status,"message":msg,"current_step":1,"total_steps":1,"current_description":msg})
-def execute(cmd):
-    x=cmd.lower().strip()
-    if re.search(r"\b(open|launch|start)\b.*\bnotepad(?:\.exe)?\b",x):
-        subprocess.Popen(["notepad.exe"]); return "Notepad opened."
-    if re.search(r"\b(open|launch|start)\b.*\b(calculator|calc)\b",x):
-        subprocess.Popen(["calc.exe"]); return "Calculator opened."
-    if re.search(r"\b(open|launch|start)\b.*\bpaint\b",x):
-        subprocess.Popen(["mspaint.exe"]); return "Paint opened."
-    if "open chrome" in x or "launch chrome" in x:
-        candidates=[os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),os.path.expandvars(r"%LocalAppData%\Google\Chrome\Application\chrome.exe")]
-        for e in candidates:
-            if Path(e).exists(): subprocess.Popen([e]); return "Chrome opened."
-        subprocess.Popen(["cmd","/c","start","","https://www.google.com"]); return "Default browser opened."
-    if "open edge" in x or "launch edge" in x:
-        subprocess.Popen(["cmd","/c","start","","msedge"]); return "Edge opened."
-    if x in {"hello","hi","hey sanvi","status"}: return f"Local SANVI agent online on {platform.node()}."
-    raise ValueError("Unsupported safe command. Try: open Notepad, Calculator, Paint, Chrome, or Edge.")
-def main():
-    if not SERVER or not TOKEN: raise SystemExit("Set SANVI_SERVER_URL and SANVI_AGENT_TOKEN first.")
-    print("SANVI local agent connected:",SERVER)
-    with httpx.Client(timeout=5) as c:
+
+from sanvi_desktop import execute, log, speak
+
+SERVER = os.getenv("SANVI_SERVER_URL", "").rstrip("/")
+TOKEN = os.getenv("SANVI_AGENT_TOKEN", "").strip()
+
+
+def headers() -> dict[str, str]:
+    return {"X-SANVI-Agent-Token": TOKEN}
+
+
+def report(task_id: str, status: str, message: str, step: int = 1, total: int = 1, description: str = "") -> None:
+    with httpx.Client(timeout=15) as client:
+        client.post(
+            f"{SERVER}/api/agent/result",
+            headers=headers(),
+            json={
+                "task_id": task_id,
+                "status": status,
+                "message": message,
+                "current_step": step,
+                "total_steps": total,
+                "current_description": description or message[:500],
+            },
+        )
+
+
+def main() -> None:
+    if not SERVER or not TOKEN:
+        raise SystemExit("Set SANVI_SERVER_URL and SANVI_AGENT_TOKEN first.")
+
+    log(f"Hosted bridge connected: {SERVER}")
+    with httpx.Client(timeout=10) as client:
         while True:
             try:
-                r=c.get(f"{SERVER}/api/agent/next",headers=h(),timeout=3); r.raise_for_status()
-                task=r.json().get("task")
-                if not task: time.sleep(.5); continue
-                try: msg=execute(task["command"]); report(task["task_id"],"COMPLETED",msg)
-                except Exception as e: report(task["task_id"],"FAILED",str(e))
-            except KeyboardInterrupt: break
-            except Exception as e: print("Connection:",e); time.sleep(2)
-if __name__=="__main__": main()
+                client.post(f"{SERVER}/api/agent/heartbeat", headers=headers(), timeout=5)
+                response = client.get(f"{SERVER}/api/agent/next", headers=headers(), timeout=5)
+                response.raise_for_status()
+                task = response.json().get("task")
+                if not task:
+                    time.sleep(0.35)
+                    continue
+
+                task_id = task["task_id"]
+                command = task["command"]
+                log(f"REMOTE TASK {task_id}: {command}")
+                os.environ["SANVI_CURRENT_TASK_ID"] = task_id
+
+                def progress(step: int, total: int, description: str) -> None:
+                    try:
+                        report(task_id, "RUNNING", f"Executing step {step}/{total}: {description}",
+                               step, total, description)
+                    except Exception:
+                        pass
+
+                try:
+                    result = execute(command, on_step=progress)
+                    report(task_id, "COMPLETED", result, 1, 1, result[:500])
+                    speak(result.splitlines()[-1][:250])
+                except Exception as exc:
+                    report(task_id, "FAILED", str(exc), 1, 1, str(exc)[:500])
+                    speak(f"Task failed. {str(exc)[:180]}")
+                finally:
+                    os.environ.pop("SANVI_CURRENT_TASK_ID", None)
+
+            except KeyboardInterrupt:
+                break
+            except Exception as exc:
+                log(f"Bridge connection: {exc}")
+                time.sleep(2)
+
+
+if __name__ == "__main__":
+    main()
