@@ -39,6 +39,7 @@ if not exist ".env" (
 echo.
 echo SANVI setup is complete.
 echo Edit .env and set OPENAI_API_KEY if you want natural-language AI planning and camera vision.
-echo Then run start_sanvi.bat or start_sanvi_background.bat.
+echo Then run .\start_sanvi.bat from PowerShell, or start_sanvi.bat from Command Prompt.
+echo For background voice mode use .\start_sanvi_background.bat in PowerShell.
 echo.
 pause
