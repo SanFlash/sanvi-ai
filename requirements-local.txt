@@ -7,3 +7,7 @@ SpeechRecognition>=3.14,<4
 pyttsx3>=2.99,<3
 playwright>=1.55,<2
 PyAudio>=0.2.14,<1
+opencv-python>=4.10,<5
+psutil>=6,<8
+pywin32>=308,<310
+appium-python-client>=4.5,<6
