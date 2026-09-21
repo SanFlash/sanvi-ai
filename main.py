@@ -1,42 +1,33 @@
-"""SANVI AI application entry point.
+"""SANVI AI hosted dashboard/API entry point.
 
-The application uses FastAPI's lifespan API for startup/shutdown and runs
-Uvicorn when this file is executed directly.
+Render hosts the web dashboard and API. Desktop/Android automation is performed
+by the local SANVI agent; the hosted service never attempts to access Render's
+nonexistent desktop, microphone, USB, or Android devices.
 """
 
 from contextlib import asynccontextmanager
 from pathlib import Path
+import os
 import logging
+from typing import Any
 
-import uvicorn
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
-
-from api.routes import register
-from android.adb import list_devices
-from browser.playwright_agent import browser_search
-from config.settings import settings
-from core.agent import SanviAgent
-from core.executor import Executor
-from core.tool_router import ToolRouter
-from database.database import init_db
-from windows.applications import open_application
-from windows.screenshots import take_screenshot
+from pydantic import BaseModel
 
 BASE_DIR = Path(__file__).resolve().parent
 DASHBOARD_DIR = BASE_DIR / "dashboard"
 TEMPLATES_DIR = DASHBOARD_DIR / "templates"
 STATIC_DIR = DASHBOARD_DIR / "static"
+SCREENSHOT_DIR = BASE_DIR / "runtime" / "screenshots"
 
-# Render/Git checkouts can omit empty directories. Create the runtime
-# directories before mounting/reading them so startup never fails because
-# dashboard/static or dashboard/templates is missing.
 TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
+SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
 
 logging.basicConfig(
-    level=getattr(logging, settings.log_level.upper(), logging.INFO),
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
 logger = logging.getLogger("sanvi")
@@ -44,54 +35,83 @@ logger = logging.getLogger("sanvi")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize and clean up application resources."""
-    logger.info("Starting SANVI AI")
-    init_db()
-    logger.info("Database initialized")
+    logger.info("SANVI AI hosted service starting")
     yield
-    logger.info("SANVI AI shutdown complete")
+    logger.info("SANVI AI hosted service stopped")
 
 
 app = FastAPI(
     title="SANVI AI",
-    version="0.1.2",
-    description="Local-first Windows and Android automation assistant",
+    version="0.1.3",
+    description="SANVI AI hosted dashboard/API",
     lifespan=lifespan,
 )
-
-state: dict = {}
-router = ToolRouter()
-router.register("open_application", open_application)
-router.register("take_screenshot", take_screenshot)
-router.register("list_devices", list_devices)
-router.register("browser_search", browser_search)
-router.register("explain", lambda message: {"success": True, "message": message})
-
-executor = Executor(router, state)
-agent = SanviAgent(executor)
-app.include_router(register(agent, state, executor))
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+class CommandRequest(BaseModel):
+    command: str
+    source: str = "text"
 
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard() -> str:
-    return (TEMPLATES_DIR / "index.html").read_text(encoding="utf-8")
+    index = TEMPLATES_DIR / "index.html"
+    if not index.exists():
+        return "<h1>SANVI AI</h1><p>Dashboard template is not deployed yet.</p>"
+    return index.read_text(encoding="utf-8")
 
 
 @app.get("/api/health")
-async def health() -> dict:
-    return {"ok": True, "name": "SANVI AI", "mode": settings.sanvi_mode}
+async def health() -> dict[str, Any]:
+    return {
+        "ok": True,
+        "name": "SANVI AI",
+        "mode": os.getenv("SANVI_MODE", "production"),
+        "automation": "local-agent-required",
+    }
 
 
-def run() -> None:
-    """Start the local Uvicorn server."""
-    uvicorn.run(
-        app,
-        host=settings.host,
-        port=settings.port,
-        log_level=settings.log_level.lower(),
+@app.get("/api/status")
+async def status() -> dict[str, Any]:
+    return await health()
+
+
+@app.post("/api/command")
+async def command(request: CommandRequest) -> dict[str, Any]:
+    command_text = request.command.strip()
+    if not command_text:
+        raise HTTPException(status_code=400, detail="Command cannot be empty")
+
+    # Hosted Render cannot safely execute arbitrary Windows/PowerShell/ADB
+    # commands. Return an explicit handoff state rather than pretending the
+    # physical-device task was executed.
+    return {
+        "task_id": None,
+        "status": "LOCAL_AGENT_REQUIRED",
+        "message": "Command received. Connect the local SANVI agent to execute it.",
+        "command": command_text,
+        "source": request.source,
+    }
+
+
+@app.get("/api/screenshot/latest")
+async def latest_screenshot():
+    candidates = sorted(
+        SCREENSHOT_DIR.glob("*"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
     )
+    for path in candidates:
+        if path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"} and path.is_file():
+            return FileResponse(path)
+    raise HTTPException(status_code=404, detail="No local-agent screenshot available")
 
 
 if __name__ == "__main__":
-    run()
+    import uvicorn
+    uvicorn.run(
+        app,
+        host=os.getenv("SANVI_HOST", "0.0.0.0"),
+        port=int(os.getenv("PORT", "8000")),
+    )
