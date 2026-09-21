@@ -11,6 +11,7 @@ SANVI is now local-first. The Render/Vercel dashboard is optional; it is not the
 ## Native mode
 Run `.venv\Scripts\python.exe sanvi_desktop.py`.
 No browser is required.
+For operations that need Windows Administrator rights, use `start_sanvi_admin.bat`; Windows will show a normal UAC prompt.
 
 Examples:
 - `open Chrome`
