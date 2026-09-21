@@ -54,3 +54,51 @@ Move the mouse to the top-left corner for PyAutoGUI fail-safe, or issue `stop`, 
 ## Architecture
 Microphone/keyboard -> SANVI Windows runtime -> Windows/Browser/Android/Camera/System tools.
 Optional Render bridge -> authenticated queue -> same local executor.
+
+
+## 12. Enable natural-language AI planning
+
+The deterministic executor handles common commands directly. For complex requests, the optional vision planner can break a spoken request into actions, observe the desktop, and continue for several bounded rounds.
+
+Examples:
+- Open Chrome, go to my website, find Settings and take a screenshot.
+- Open my project in VS Code, inspect the current screen and continue the task.
+- On Android open WhatsApp and navigate to Settings.
+- Find the file I was working on and show it.
+- Do the same thing as the previous task, but for the other project.
+
+### OpenAI planner
+1. Copy `.env.agent.example` to `.env` in the SANVI repository root.
+2. Set:
+
+SANVI_AI_PROVIDER=openai
+SANVI_AI_MODEL=gpt-5.6-luna
+OPENAI_API_KEY=YOUR_KEY
+SANVI_VOICE_LANGUAGE=en-IN
+
+3. Save the file.
+4. Run `start_sanvi.bat`.
+The native runtime loads `.env` automatically.
+
+The planner receives the spoken request and, when useful, a fresh desktop screenshot. It creates a strict action plan, SANVI executes it, captures another screenshot, and can plan another round. It stops after a bounded number of visual rounds.
+
+### Local Ollama alternative
+If you do not want an API key, install Ollama and a compatible vision model and configure:
+
+SANVI_AI_PROVIDER=ollama
+SANVI_AI_MODEL=YOUR_VISION_MODEL
+SANVI_OLLAMA_URL=http://127.0.0.1:11434/api/chat
+
+### Voice workflow
+With `start_sanvi_background.bat` running:
+
+You: Hey Sanvi, open Chrome and find the Playwright documentation.
+SANVI: listens -> transcribes -> plans -> acts -> observes -> verifies -> speaks result
+
+For a long task, SANVI can perform several action/observation rounds.
+
+### Human-required operations
+SANVI intentionally stops when a task requires an OTP, CAPTCHA, payment authorization, or another human-only approval.
+
+### Security
+Keep `SANVI_ALLOW_AUTOMATIC_DANGEROUS=false` unless you specifically want automatic destructive actions on a private machine.
