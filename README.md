@@ -1336,13 +1336,30 @@ Do not add quotes unless the value itself requires them.
 
 ## Camera is not detected
 
-Check:
+SANVI separates **opening the Windows Camera app** from **capturing/previewing through OpenCV**.
 
-1. camera is connected;
-2. another application is not exclusively using it;
-3. Windows camera privacy permissions;
-4. `camera list`;
-5. Python/OpenCV installation.
+Native camera app:
+```text
+open camera
+```
+
+Webcam detection:
+```text
+camera list
+```
+
+Capture a photo:
+```text
+camera photo
+```
+
+Live OpenCV preview:
+```text
+camera preview
+```
+Press **Q** or **Esc** in the preview window to close it.
+
+If capture fails, check Windows Settings > Privacy & security > Camera, allow desktop apps to access the camera, and close Teams/Zoom/OBS/Camera. SANVI tries DirectShow, Media Foundation, and the default OpenCV backend.
 
 ## Microphone is not working
 
@@ -1586,7 +1603,7 @@ SANVI is intended to be a powerful local computer-use agent. The native runtime 
 
 ### Current control layers
 
-- **Desktop:** keyboard, mouse, screenshots, application launch/close, typing and key combinations.
+- **Desktop:** keyboard, mouse movement/click/double-click/right-click/scroll, clipboard, screenshots, application launch/close, typing and key combinations.
 - **Windows:** files, processes, system information, explicit PowerShell/CMD commands.
 - **Browser:** browser navigation/search and Playwright-based automation.
 - **Camera:** camera enumeration, photos, preview, and optional AI vision.
