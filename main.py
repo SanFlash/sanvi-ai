@@ -1,7 +1,7 @@
 """SANVI AI hosted real-time command bridge."""
 from contextlib import asynccontextmanager
 from pathlib import Path
-import asyncio, logging, os, time, uuid
+import asyncio, base64, logging, os, time, uuid
 from typing import Any
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.responses import HTMLResponse, FileResponse
@@ -19,6 +19,7 @@ logger=logging.getLogger("sanvi")
 AGENT_TOKEN=os.getenv("SANVI_AGENT_TOKEN","").strip()
 tasks:dict[str,dict[str,Any]]={}
 queue:asyncio.Queue[str]=asyncio.Queue()
+last_agent_heartbeat:float=0.0
 
 @asynccontextmanager
 async def lifespan(app:FastAPI):
@@ -31,6 +32,10 @@ app.mount("/static",StaticFiles(directory=str(STATIC_DIR)),name="static")
 class CommandRequest(BaseModel):
     command:str
     source:str="text"
+
+class ScreenshotRequest(BaseModel):
+    filename:str="desktop.png"
+    data_b64:str
 
 class AgentResult(BaseModel):
     task_id:str
@@ -51,7 +56,8 @@ async def dashboard():
 
 @app.get("/api/health")
 async def health():
-    return {"ok":True,"name":"SANVI AI","mode":os.getenv("SANVI_MODE","production"),"agent_required":True}
+    connected = bool(last_agent_heartbeat and (time.time() - last_agent_heartbeat) < 10)
+    return {"ok":True,"name":"SANVI AI","mode":os.getenv("SANVI_MODE","production"),"agent_required":True,"agent_connected":connected,"last_agent_heartbeat":last_agent_heartbeat}
 
 @app.get("/api/status")
 async def status(): return await health()
@@ -92,8 +98,24 @@ async def agent_result(r:AgentResult,x_sanvi_agent_token:str|None=Header(default
 
 @app.post("/api/agent/heartbeat")
 async def heartbeat(x_sanvi_agent_token:str|None=Header(default=None)):
+    global last_agent_heartbeat
     auth(x_sanvi_agent_token)
-    return {"ok":True,"server_time":time.time()}
+    last_agent_heartbeat=time.time()
+    return {"ok":True,"server_time":last_agent_heartbeat}
+
+@app.post("/api/agent/screenshot")
+async def agent_screenshot(r:ScreenshotRequest,x_sanvi_agent_token:str|None=Header(default=None)):
+    auth(x_sanvi_agent_token)
+    try:
+        raw=base64.b64decode(r.data_b64,validate=True)
+    except Exception:
+        raise HTTPException(400,"Invalid screenshot data")
+    safe_name=Path(r.filename).name
+    if Path(safe_name).suffix.lower() not in {".png",".jpg",".jpeg",".webp"}:
+        safe_name="desktop.png"
+    target=SCREENSHOT_DIR/safe_name
+    target.write_bytes(raw)
+    return {"ok":True,"filename":safe_name,"bytes":len(raw)}
 
 @app.get("/api/screenshot/latest")
 async def screenshot():
