@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SANVI AI</title>
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="brand"><span class="orb"></span><div><h1>SANVI AI</h1><p>Voice-controlled Windows + Android AI Agent</p></div></div>
+    <span id="status" class="online">ONLINE</span>
+  </header>
+
+  <section class="voice-bar card">
+    <div class="voice-main">
+      <button id="mic" class="mic" onclick="toggleVoice()">🎙️ Enable Microphone</button>
+      <div>
+        <strong id="voiceState">Microphone is off</strong>
+        <div id="heard">Say: “Hey Sanvi, open Chrome.”</div>
+      </div>
+    </div>
+    <select id="language" title="Voice language">
+      <option value="en-IN">English / Hinglish</option>
+      <option value="hi-IN">Hindi</option>
+      <option value="en-US">English (US)</option>
+    </select>
+  </section>
+
+  <section class="grid">
+    <div class="card">
+      <h2>Command Center</h2>
+      <textarea id="command" placeholder="Type a command or use the microphone..."></textarea>
+      <div class="buttons">
+        <button onclick="send()">Execute</button>
+        <button onclick="stop()">STOP</button>
+        <button onclick="pause()">PAUSE</button>
+        <button onclick="resume()">RESUME</button>
+      </div>
+      <div class="task"><div class="task-head"><span id="taskText">Ready</span><span id="progressText">0 / 0</span></div><div class="progress"><span id="progress"></span></div></div>
+      <pre id="output">Ready. Enable the microphone to use voice commands.</pre>
+    </div>
+
+    <div class="card screen-card">
+      <div class="screen-head"><h2>Live Computer Screen</h2><span id="screenState">Waiting</span></div>
+      <div class="screen"><img id="liveScreen" alt="SANVI live desktop observation"><div id="screenEmpty">When SANVI runs a command, the desktop observation will appear here.</div></div>
+    </div>
+  </section>
+
+  <section class="card capabilities">
+    <h2>Capabilities</h2>
+    <div class="chips"><span>Windows control</span><span>Voice + Hinglish</span><span>Browser automation</span><span>Android ADB</span><span>Live screenshots</span><span>Task control</span><span>Safety controls</span></div>
+  </section>
+</main>
+<script src="/static/js/app.js"></script>
+</body>
+</html>
