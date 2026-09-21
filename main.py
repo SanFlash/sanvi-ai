@@ -1,117 +1,123 @@
-"""SANVI AI hosted dashboard/API entry point.
-
-Render hosts the web dashboard and API. Desktop/Android automation is performed
-by the local SANVI agent; the hosted service never attempts to access Render's
-nonexistent desktop, microphone, USB, or Android devices.
-"""
-
+"""SANVI AI hosted real-time command bridge."""
 from contextlib import asynccontextmanager
 from pathlib import Path
-import os
-import logging
+import asyncio, logging, os, time, uuid
 from typing import Any
-
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-BASE_DIR = Path(__file__).resolve().parent
-DASHBOARD_DIR = BASE_DIR / "dashboard"
-TEMPLATES_DIR = DASHBOARD_DIR / "templates"
-STATIC_DIR = DASHBOARD_DIR / "static"
-SCREENSHOT_DIR = BASE_DIR / "runtime" / "screenshots"
+BASE_DIR=Path(__file__).resolve().parent
+TEMPLATES_DIR=BASE_DIR/"dashboard"/"templates"
+STATIC_DIR=BASE_DIR/"dashboard"/"static"
+SCREENSHOT_DIR=BASE_DIR/"runtime"/"screenshots"
+for d in (TEMPLATES_DIR,STATIC_DIR,SCREENSHOT_DIR): d.mkdir(parents=True,exist_ok=True)
 
-TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
-STATIC_DIR.mkdir(parents=True, exist_ok=True)
-SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
-
-logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO").upper(),
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-)
-logger = logging.getLogger("sanvi")
-
+logging.basicConfig(level=os.getenv("LOG_LEVEL","INFO").upper())
+logger=logging.getLogger("sanvi")
+AGENT_TOKEN=os.getenv("SANVI_AGENT_TOKEN","").strip()
+tasks:dict[str,dict[str,Any]]={}
+queue:asyncio.Queue[str]=asyncio.Queue()
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
-    logger.info("SANVI AI hosted service starting")
+async def lifespan(app:FastAPI):
+    logger.info("SANVI real-time bridge started")
     yield
-    logger.info("SANVI AI hosted service stopped")
 
-
-app = FastAPI(
-    title="SANVI AI",
-    version="0.1.3",
-    description="SANVI AI hosted dashboard/API",
-    lifespan=lifespan,
-)
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
-
+app=FastAPI(title="SANVI AI",version="0.2.0",lifespan=lifespan)
+app.mount("/static",StaticFiles(directory=str(STATIC_DIR)),name="static")
 
 class CommandRequest(BaseModel):
-    command: str
-    source: str = "text"
+    command:str
+    source:str="text"
 
+class AgentResult(BaseModel):
+    task_id:str
+    status:str
+    message:str=""
+    current_step:int=0
+    total_steps:int=1
+    current_description:str=""
 
-@app.get("/", response_class=HTMLResponse)
-async def dashboard() -> str:
-    index = TEMPLATES_DIR / "index.html"
-    if not index.exists():
-        return "<h1>SANVI AI</h1><p>Dashboard template is not deployed yet.</p>"
-    return index.read_text(encoding="utf-8")
+def auth(token:str|None):
+    if not AGENT_TOKEN: raise HTTPException(503,"SANVI_AGENT_TOKEN is not configured")
+    if token!=AGENT_TOKEN: raise HTTPException(401,"Invalid SANVI agent token")
 
+@app.get("/",response_class=HTMLResponse)
+async def dashboard():
+    p=TEMPLATES_DIR/"index.html"
+    return p.read_text(encoding="utf-8") if p.exists() else "<h1>SANVI AI</h1>"
 
 @app.get("/api/health")
-async def health() -> dict[str, Any]:
-    return {
-        "ok": True,
-        "name": "SANVI AI",
-        "mode": os.getenv("SANVI_MODE", "production"),
-        "automation": "local-agent-required",
-    }
-
+async def health():
+    return {"ok":True,"name":"SANVI AI","mode":os.getenv("SANVI_MODE","production"),"agent_required":True}
 
 @app.get("/api/status")
-async def status() -> dict[str, Any]:
-    return await health()
-
+async def status(): return await health()
 
 @app.post("/api/command")
-async def command(request: CommandRequest) -> dict[str, Any]:
-    command_text = request.command.strip()
-    if not command_text:
-        raise HTTPException(status_code=400, detail="Command cannot be empty")
+async def command(r:CommandRequest):
+    text=r.command.strip()
+    if not text: raise HTTPException(400,"Command cannot be empty")
+    tid=uuid.uuid4().hex
+    tasks[tid]={"task_id":tid,"status":"PENDING","current_step":0,"total_steps":1,
+      "current_description":"Waiting for local Windows agent","message":"Command queued",
+      "command":text,"source":r.source,"created_at":time.time(),"updated_at":time.time()}
+    await queue.put(tid)
+    return {"task_id":tid,"status":"PENDING","message":"Command queued"}
 
-    # Hosted Render cannot safely execute arbitrary Windows/PowerShell/ADB
-    # commands. Return an explicit handoff state rather than pretending the
-    # physical-device task was executed.
-    return {
-        "task_id": None,
-        "status": "LOCAL_AGENT_REQUIRED",
-        "message": "Command received. Connect the local SANVI agent to execute it.",
-        "command": command_text,
-        "source": request.source,
-    }
+@app.get("/api/tasks/{task_id}")
+async def get_task(task_id:str):
+    if task_id not in tasks: raise HTTPException(404,"Task not found")
+    return tasks[task_id]
 
+@app.get("/api/agent/next")
+async def agent_next(x_sanvi_agent_token:str|None=Header(default=None)):
+    auth(x_sanvi_agent_token)
+    try: tid=await asyncio.wait_for(queue.get(),timeout=1)
+    except asyncio.TimeoutError: return {"task":None}
+    task=tasks.get(tid)
+    if not task:return {"task":None}
+    task.update(status="RUNNING",current_description="Executing on local Windows agent",updated_at=time.time())
+    return {"task":task}
+
+@app.post("/api/agent/result")
+async def agent_result(r:AgentResult,x_sanvi_agent_token:str|None=Header(default=None)):
+    auth(x_sanvi_agent_token)
+    if r.task_id not in tasks: raise HTTPException(404,"Task not found")
+    tasks[r.task_id].update(status=r.status,message=r.message,current_step=r.current_step,
+      total_steps=r.total_steps,current_description=r.current_description,updated_at=time.time())
+    return {"ok":True}
+
+@app.post("/api/agent/heartbeat")
+async def heartbeat(x_sanvi_agent_token:str|None=Header(default=None)):
+    auth(x_sanvi_agent_token)
+    return {"ok":True,"server_time":time.time()}
 
 @app.get("/api/screenshot/latest")
-async def latest_screenshot():
-    candidates = sorted(
-        SCREENSHOT_DIR.glob("*"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
-    for path in candidates:
-        if path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"} and path.is_file():
-            return FileResponse(path)
-    raise HTTPException(status_code=404, detail="No local-agent screenshot available")
+async def screenshot():
+    files=sorted(SCREENSHOT_DIR.glob("*"),key=lambda p:p.stat().st_mtime,reverse=True)
+    for p in files:
+        if p.suffix.lower() in {".png",".jpg",".jpeg",".webp"}: return FileResponse(p)
+    raise HTTPException(404,"No screenshot available")
 
+@app.post("/api/tasks/{task_id}/stop")
+async def stop(task_id:str):
+    if task_id not in tasks: raise HTTPException(404,"Task not found")
+    tasks[task_id].update(status="CANCELLED",current_description="Stop requested",updated_at=time.time())
+    return tasks[task_id]
 
-if __name__ == "__main__":
+@app.post("/api/tasks/{task_id}/pause")
+async def pause(task_id:str):
+    if task_id not in tasks: raise HTTPException(404,"Task not found")
+    tasks[task_id].update(status="PAUSED",updated_at=time.time()); return tasks[task_id]
+
+@app.post("/api/tasks/{task_id}/resume")
+async def resume(task_id:str):
+    if task_id not in tasks: raise HTTPException(404,"Task not found")
+    tasks[task_id].update(status="RUNNING",updated_at=time.time()); return tasks[task_id]
+
+if __name__=="__main__":
     import uvicorn
-    uvicorn.run(
-        app,
-        host=os.getenv("SANVI_HOST", "0.0.0.0"),
-        port=int(os.getenv("PORT", "8000")),
-    )
+    uvicorn.run(app,host="0.0.0.0",port=int(os.getenv("PORT","8000")))
