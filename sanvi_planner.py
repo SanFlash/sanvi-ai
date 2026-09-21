@@ -49,3 +49,34 @@ def plan(command: str, screenshot_path: str|None=None, context: list[dict[str,st
                 if content.get("type") in {"output_text","text"}: chunks.append(content.get("text",""))
         output="".join(chunks)
     return _extract_json(output)
+
+
+def describe_image(image_path: str, question: str = "Describe what is visible in this image.") -> str:
+    key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not key:
+        raise RuntimeError("OPENAI_API_KEY is required for camera vision.")
+    model = os.getenv("SANVI_AI_MODEL", "gpt-5.6-luna").strip()
+    prompt = question + "\nAnswer concisely and only describe information actually visible."
+    payload = {
+        "model": model,
+        "input": [
+            {"role": "system", "content": [{"type": "input_text", "text": "You are SANVI's visual perception module. Do not invent details. Describe only what is visible."}]},
+            {"role": "user", "content": [
+                {"type": "input_text", "text": prompt},
+                {"type": "input_image", "image_url": _image_data(image_path)}
+            ]}
+        ]
+    }
+    with httpx.Client(timeout=90) as client:
+        r = client.post("https://api.openai.com/v1/responses", headers={"Authorization": "Bearer "+key, "Content-Type": "application/json"}, json=payload)
+        r.raise_for_status()
+        data = r.json()
+    output = data.get("output_text", "")
+    if output:
+        return output.strip()
+    chunks=[]
+    for item in data.get("output", []):
+        for content in item.get("content", []):
+            if content.get("type") in {"output_text","text"}:
+                chunks.append(content.get("text",""))
+    return "".join(chunks).strip()
