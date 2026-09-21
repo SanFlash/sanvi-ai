@@ -1576,6 +1576,26 @@ Hey Sanvi, stop.
 
 ---
 
+## Full PC control: what SANVI can and cannot do
+
+SANVI is intended to be a powerful local computer-use agent. The native runtime can control applications, keyboard/mouse, browsers, files, processes, screenshots, camera devices, Android devices, and explicit PowerShell/CMD operations using the permissions of the Windows account running SANVI.
+
+### Important Windows security boundary
+
+"Full control" does not mean bypassing Windows security. SANVI cannot and should not silently bypass UAC, antivirus/EDR, passwords, MFA/OTP, CAPTCHA, application security prompts, or other operating-system security controls. When elevated access is genuinely required, run `start_sanvi_admin.bat` and approve the normal Windows UAC prompt.
+
+### Current control layers
+
+- **Desktop:** keyboard, mouse, screenshots, application launch/close, typing and key combinations.
+- **Windows:** files, processes, system information, explicit PowerShell/CMD commands.
+- **Browser:** browser navigation/search and Playwright-based automation.
+- **Camera:** camera enumeration, photos, preview, and optional AI vision.
+- **Android:** ADB device discovery, app launch, taps, text input, keys, UI dump and screenshots.
+- **AI computer use:** screenshot -> plan -> execute -> observe -> continue, with bounded planning rounds.
+- **Safety:** destructive actions remain confirmation-gated by default.
+
+For genuinely broad arbitrary GUI tasks, the long-term architecture should combine deterministic Windows UI Automation/accessibility APIs, Playwright, Android UiAutomator2/Appium, OCR, screenshots, process control, and verified tool results. No single GUI automation library can guarantee control of every application.
+
 # Current Limitations
 
 SANVI is a broad computer-use framework, but it should not be described as an unrestricted autonomous computer operator.
