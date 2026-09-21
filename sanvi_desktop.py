@@ -70,6 +70,11 @@ try:
 except Exception:
     cv2 = None
 
+try:
+    from sanvi_planner import plan as ai_plan
+except Exception:
+    ai_plan = None
+
 APP_ALIASES = {
     "notepad": ["notepad.exe"],
     "calculator": ["calc.exe"],
@@ -465,6 +470,86 @@ def split_steps(command: str) -> list[str]:
     return [s.strip() for s in re.split(r"\s+(?:then|after that)\s+", normalized, flags=re.I) if s.strip()]
 
 
+
+def execute_ai_action(tool: str, args: dict, original_command: str, allow_dangerous: bool = False) -> str:
+    tool_map = {
+        "open_app": lambda: open_app(str(args.get("name", ""))),
+        "close_app": lambda: close_app(str(args.get("name", ""))),
+        "browser_open": lambda: browser_open(str(args.get("url", ""))),
+        "browser_search": lambda: browser_search(str(args.get("query", ""))),
+        "type_text": lambda: type_text(str(args.get("text", ""))),
+        "press_keys": lambda: press_keys(str(args.get("keys", ""))),
+        "click_xy": lambda: click_xy(int(args.get("x", 0)), int(args.get("y", 0))),
+        "screenshot": lambda: screenshot(),
+        "camera_photo": lambda: camera_photo(int(args.get("index", 0)), str(args.get("path", ""))),
+        "camera_preview": lambda: camera_preview(int(args.get("index", 0))),
+        "system_info": lambda: system_info(),
+        "list_files": lambda: list_files(str(args.get("path", "."))),
+        "read_file": lambda: read_file(str(args.get("path", ""))),
+        "write_file": lambda: write_file(str(args.get("path", "")), str(args.get("content", ""))),
+        "delete_file": lambda: delete_file(str(args.get("path", "")), allow=allow_dangerous),
+        "list_processes": lambda: list_processes(str(args.get("filter_text", ""))),
+        "android_devices": lambda: android_devices(),
+        "android_open": lambda: android_open(str(args.get("app", ""))),
+        "android_tap": lambda: android_tap(int(args.get("x", 0)), int(args.get("y", 0))),
+        "android_tap_text": lambda: android_tap_text(str(args.get("text", ""))),
+        "android_type": lambda: android_type(str(args.get("text", ""))),
+        "android_key": lambda: android_key(str(args.get("key", ""))),
+        "android_screenshot": lambda: android_screenshot(),
+    }
+    if tool in {"run_powershell", "run_cmd"}:
+        if not re.search(r"\b(powershell|cmd|command|terminal|shell|script)\b", original_command, re.I):
+            raise PermissionError("AI planner cannot invent a shell command for an ordinary request.")
+        command = str(args.get("command", "")).strip()
+        if not command:
+            raise ValueError("Empty shell command.")
+        return powershell(command) if tool == "run_powershell" else cmd(command)
+    if tool not in tool_map:
+        raise ValueError(f"Unknown AI tool: {tool}")
+    return tool_map[tool]()
+
+
+def execute_ai_task(command: str, allow_dangerous: bool = False) -> str:
+    if not ai_plan:
+        raise RuntimeError("AI planner is unavailable. Check sanvi_planner.py and httpx.")
+    context: list[dict[str, str]] = []
+    last_screenshot = Path.cwd() / "runtime" / "screenshots" / "desktop.png"
+    for round_no in range(1, 7):
+        # Fresh visual state before every planning round.
+        try:
+            screenshot(str(last_screenshot))
+        except Exception:
+            last_screenshot = None
+        decision = ai_plan(command, str(last_screenshot) if last_screenshot and last_screenshot.exists() else None, context)
+        reply = str(decision.get("reply", "")).strip()
+        actions = decision.get("actions") or []
+        if not isinstance(actions, list):
+            raise ValueError("AI planner returned invalid actions.")
+        if decision.get("done") and not actions:
+            return reply or "Task completed."
+        for action in actions:
+            if not isinstance(action, dict):
+                continue
+            tool = str(action.get("tool", "")).strip()
+            args = action.get("args") or {}
+            if not isinstance(args, dict):
+                args = {}
+            log(f"AI {round_no}: {tool} {args}")
+            result = execute_ai_action(tool, args, command, allow_dangerous=allow_dangerous)
+            context.append({"action": tool, "result": str(result)[:1200]})
+            if STOP.is_set():
+                raise RuntimeError("Task stopped.")
+        # Capture the result of the action before the next planning round.
+        try:
+            screenshot(str(last_screenshot))
+            context.append({"observation": "fresh desktop screenshot captured"})
+        except Exception as exc:
+            context.append({"observation": f"screenshot unavailable: {exc}"})
+        if reply:
+            context.append({"assistant": reply})
+    raise RuntimeError("SANVI reached the maximum visual planning rounds without verified completion.")
+
+
 def execute_one(command: str, allow_dangerous: bool = False) -> str:
     x = command.strip()
     low = x.lower()
@@ -586,6 +671,16 @@ def execute_one(command: str, allow_dangerous: bool = False) -> str:
     # A URL can be supplied directly.
     if re.match(r"^https?://", x, re.I):
         return browser_open(x)
+
+    # Natural-language fallback: use the vision planner for commands that do not
+    # match a deterministic executor. This is the layer that lets SANVI handle
+    # multi-step GUI tasks instead of requiring a rigid command vocabulary.
+    if ai_plan:
+        try:
+            return execute_ai_task(x, allow_dangerous=allow_dangerous)
+        except RuntimeError as exc:
+            if "AI planner is unavailable" not in str(exc):
+                raise
 
     if low in {"shutdown", "shut down", "turn off computer"}:
         if not allow_dangerous:
