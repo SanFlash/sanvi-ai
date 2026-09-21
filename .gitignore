@@ -1,0 +1,8 @@
+.venv/
+.env
+.env.*
+!.env.agent.example
+__pycache__/
+*.pyc
+runtime/
+.pytest_cache/
