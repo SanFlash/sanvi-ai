@@ -627,6 +627,9 @@ def execute_one(command: str, allow_dangerous: bool = False) -> str:
     if low in {"camera list", "list cameras", "show cameras"}:
         return json.dumps(camera_indices())
 
+    if low in {"open camera", "launch camera", "start camera"}:
+        return camera_preview(0)
+
     m = re.match(r"^camera\s+(?:photo|capture)(?:\s+(\d+))?(?:\s+(.+))?$", x, re.I)
     if m:
         return camera_photo(int(m.group(1) or 0), m.group(2) or "")
@@ -654,7 +657,7 @@ def execute_one(command: str, allow_dangerous: bool = False) -> str:
 
     m = re.match(r"^(?:search(?:\s+the\s+web)?\s+(?:for\s+)?)\s*(.+)$", x, re.I)
     if m:
-        return browser_search(m.group(2))
+        return browser_search(m.group(1))
 
     m = re.match(r"^(?:go\s+to|navigate\s+to)\s+(.+)$", x, re.I)
     if m:
