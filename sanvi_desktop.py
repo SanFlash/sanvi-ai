@@ -35,6 +35,12 @@ from pathlib import Path
 from typing import Callable, Optional
 
 try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
+
+try:
     import httpx
 except Exception:
     httpx = None
@@ -671,16 +677,6 @@ def execute_one(command: str, allow_dangerous: bool = False) -> str:
     # A URL can be supplied directly.
     if re.match(r"^https?://", x, re.I):
         return browser_open(x)
-
-    # Natural-language fallback: use the vision planner for commands that do not
-    # match a deterministic executor. This is the layer that lets SANVI handle
-    # multi-step GUI tasks instead of requiring a rigid command vocabulary.
-    if ai_plan:
-        try:
-            return execute_ai_task(x, allow_dangerous=allow_dangerous)
-        except RuntimeError as exc:
-            if "AI planner is unavailable" not in str(exc):
-                raise
 
     if low in {"shutdown", "shut down", "turn off computer"}:
         if not allow_dangerous:
