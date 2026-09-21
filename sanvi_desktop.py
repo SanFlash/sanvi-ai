@@ -77,9 +77,10 @@ except Exception:
     cv2 = None
 
 try:
-    from sanvi_planner import plan as ai_plan
+    from sanvi_planner import plan as ai_plan, describe_image
 except Exception:
     ai_plan = None
+    describe_image = None
 
 APP_ALIASES = {
     "notepad": ["notepad.exe"],
@@ -325,6 +326,15 @@ def camera_photo(index: int = 0, path: str = "") -> str:
     cv2.imwrite(str(target), frame)
     return f"Camera photo saved to {target}"
 
+
+
+def camera_analyze(question: str = "What do you see in front of the camera?") -> str:
+    if not describe_image:
+        raise RuntimeError("Camera vision planner is unavailable.")
+    target = Path.cwd() / "runtime" / "camera" / "latest.jpg"
+    camera_photo(0, str(target))
+    answer = describe_image(str(target), question)
+    return answer or "I could not determine what is visible."
 
 def camera_preview(index: int = 0) -> str:
     if not cv2:
@@ -610,6 +620,9 @@ def execute_one(command: str, allow_dangerous: bool = False) -> str:
     m = re.match(r"^(?:list|show)\s+process(?:es)?(?:\s+(.+))?$", x, re.I)
     if m:
         return list_processes(m.group(1) or "")
+
+    if low in {"camera vision", "look through camera", "what do you see", "what is in front of camera"}:
+        return camera_analyze()
 
     if low in {"camera list", "list cameras", "show cameras"}:
         return json.dumps(camera_indices())
