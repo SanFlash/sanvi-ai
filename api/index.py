@@ -1,16 +1,29 @@
+"""Vercel-compatible FastAPI entry point."""
 from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 BASE_DIR = Path(__file__).resolve().parents[1]
-app = FastAPI(title="SANVI AI", version="0.1.2")
-app.mount("/static", StaticFiles(directory=str(BASE_DIR / "dashboard" / "static")), name="static")
+STATIC_DIR = BASE_DIR / "dashboard" / "static"
+TEMPLATES_DIR = BASE_DIR / "dashboard" / "templates"
+STATIC_DIR.mkdir(parents=True, exist_ok=True)
+TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
+
+app = FastAPI(title="SANVI AI", version="0.1.3")
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
-    return (BASE_DIR / "dashboard" / "templates" / "index.html").read_text(encoding="utf-8")
+    index = TEMPLATES_DIR / "index.html"
+    if not index.exists():
+        return "<h1>SANVI AI</h1><p>Dashboard template is not deployed yet.</p>"
+    return index.read_text(encoding="utf-8")
+
+@app.get("/api/health")
+async def health():
+    return {"ok": True, "name": "SANVI AI", "mode": "hosted", "automation": "local-agent-required"}
 
 @app.get("/api/status")
 async def status():
-    return {"status":"online","mode":"hosted","automation":"local-agent-required"}
+    return await health()
