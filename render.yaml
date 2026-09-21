@@ -11,3 +11,5 @@ services:
         value: 3.11.9
       - key: SANVI_MODE
         value: production
+      - key: LOG_LEVEL
+        value: INFO
