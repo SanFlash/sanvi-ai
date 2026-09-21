@@ -41,6 +41,7 @@ except Exception:
 
 try:
     import pyautogui
+    pyautogui.FAILSAFE = True
 except Exception:
     pyautogui = None
 
@@ -160,7 +161,7 @@ def browser_open(url: str) -> str:
 
 
 def browser_search(query: str) -> str:
-    url = "https://www.google.com/search?q=" + __import__("urllib.parse").parse.quote_plus(query)
+    url = "https://www.google.com/search?q=" + urllib.parse.quote_plus(query)
     return browser_open(url)
 
 
@@ -337,7 +338,7 @@ def android_tap_text(text: str) -> str:
     xml = android_ui_dump()
     needle = text.strip().lower()
     # Parse bounds from UiAutomator XML without requiring a full XML dependency.
-    pattern = re.compile(r'<node[^>]*text="([^"]*)"[^>]*bounds="\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]"[^>]*/?>')
+    pattern = re.compile(r'<node[^>]*text="([^"]*)"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"[^>]*/?>')
     for label, x1, y1, x2, y2 in pattern.findall(xml):
         if needle in label.lower():
             x = (int(x1) + int(x2)) // 2
