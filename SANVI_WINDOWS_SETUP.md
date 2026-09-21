@@ -102,3 +102,31 @@ SANVI intentionally stops when a task requires an OTP, CAPTCHA, payment authoriz
 
 ### Security
 Keep `SANVI_ALLOW_AUTOMATIC_DANGEROUS=false` unless you specifically want automatic destructive actions on a private machine.
+
+## 13. Recommended first-time setup sequence
+1. Clone or pull the repository.
+2. Run `setup_sanvi.bat` once.
+3. Open `.env`.
+4. Set `OPENAI_API_KEY` if you want the AI planner and camera vision.
+5. Keep `SANVI_ALLOW_AUTOMATIC_DANGEROUS=false` initially.
+6. Connect the Android phone and verify `adb devices` if Android control is needed.
+7. Check Windows Settings > Privacy & security > Camera and Microphone and allow access for desktop applications/Python as appropriate.
+8. Run `start_sanvi.bat` for visible native mode.
+9. Test `status`, `open Notepad`, `take screenshot`, `camera list`, and `android devices`.
+10. Run `start_sanvi_background.bat` for hands-free voice mode.
+11. Say `Hey Sanvi` followed by a complete task.
+
+## 14. Example end-to-end voice commands
+- `Hey Sanvi, open Chrome and search for Playwright automation.`
+- `Hey Sanvi, open Notepad and type my test notes.`
+- `Hey Sanvi, take a screenshot and tell me what is on the screen.`
+- `Hey Sanvi, look through the camera and tell me what you see.`
+- `Hey Sanvi, take a photo and save it in my Pictures folder.`
+- `Hey Sanvi, open WhatsApp on Android and navigate to Settings.`
+- `Hey Sanvi, show me the files in my project folder.`
+- `Hey Sanvi, open my project and continue the current task.`
+- `Hey Sanvi, pause.`
+- `Hey Sanvi, resume.`
+- `Hey Sanvi, stop.`
+
+Natural-language planning is bounded by six visual planning rounds per request. If SANVI cannot verify completion, it reports that instead of claiming success.
