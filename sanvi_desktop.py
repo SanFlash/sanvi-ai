@@ -426,6 +426,32 @@ def upload_screenshot(path: Path) -> None:
         log(f"Screenshot relay unavailable: {exc}")
 
 
+
+def normalize_hinglish(command: str) -> str:
+    """Map common Hindi/Hinglish voice phrases to canonical executor commands."""
+    x = command.strip()
+    low = x.lower().strip()
+    replacements = [
+        (r"^(?:chrome|google chrome)\s+(?:khol|kholo|open karo|chalao)$", "open Chrome"),
+        (r"^(?:notepad)\s+(?:khol|kholo|open karo)$", "open Notepad"),
+        (r"^(?:calculator|calc)\s+(?:khol|kholo|open karo)$", "open Calculator"),
+        (r"^(?:paint)\s+(?:khol|kholo|open karo)$", "open Paint"),
+        (r"^(?:whatsapp)\s+(?:khol|kholo|open karo)$", "android open app whatsapp"),
+        (r"^(?:camera)\s+(?:photo lo|photo le|photo kheecho|photo khicho)$", "camera photo"),
+        (r"^(?:screenshot)\s+(?:lo|le lo|kheecho|le)$", "take screenshot"),
+        (r"^(?:screen|computer)\s+(?:dikhao|dikhाओ|show karo)$", "take screenshot"),
+        (r"^(?:search|google)\s+(?:karo|karna|karo for)\s+(.+)$", r"search for \1"),
+        (r"^(.+?)\s+(?:search karo|search karो)$", r"search for \1"),
+        (r"^(?:app)\s+(.+?)\s+(?:khol|kholo|open karo)$", r"android open app \1"),
+        (r"^(?:file|folder)\s+(.+?)\s+(?:dikhao|dikhाओ|show karo)$", r"list files \1"),
+    ]
+    for pattern, replacement in replacements:
+        m = re.match(pattern, low, re.I)
+        if m:
+            return re.sub(pattern, replacement, x, flags=re.I)
+    return x
+
+
 def split_steps(command: str) -> list[str]:
     # Preserve common phrases such as "open Chrome and search for Playwright".
     normalized = command.strip()
@@ -586,6 +612,7 @@ def execute_one(command: str, allow_dangerous: bool = False) -> str:
 
 def execute(command: str, on_step: Optional[Callable[[int, int, str], None]] = None, allow_dangerous: bool = False) -> str:
     STOP.clear()
+    command = normalize_hinglish(command)
     steps = split_steps(command)
     results = []
     total = len(steps)
