@@ -960,21 +960,54 @@ def relay_result(status: str, message: str) -> None:
 
 
 def interactive() -> None:
+    """Keep SANVI in an active conversational command session.
+
+    The session remains open until the operator says/types "Good night".
+    Each completed command is followed by a prompt for the next command,
+    and recent task context is retained so follow-up commands can refer to
+    the previous action.
+    """
     log("Native SANVI controller is running.")
-    log("No browser/iframe is required. Type a command, or press Ctrl+Alt+S for voice.")
-    log("Type 'exit' to close SANVI.")
+    log("Active conversation mode is ON.")
+    log("Give SANVI a command. After every command, SANVI will ask for the next one.")
+    log("Say or type 'Good night' to end the active SANVI session.")
+    log("Emergency stop: say/type 'stop'. This stops the current task but keeps SANVI active.")
     install_hotkey()
-    while True:
+
+    session_active = True
+    while session_active:
         try:
-            command = input("SANVI> ").strip()
+            command = input("SANVI — What should I do next? ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             break
+
         if not command:
             continue
-        if command.lower() in {"exit", "quit"}:
+
+        normalized = command.strip().lower()
+        # "Good night" is the explicit conversational-session termination phrase.
+        if normalized in {
+            "good night",
+            "goodnight",
+            "good night sanvi",
+            "goodnight sanvi",
+        }:
+            speak("Good night. SANVI session ended.")
+            log("Good night. Active session ended.")
+            session_active = False
+            continue
+
+        # Keep ordinary exit/quit available as a local emergency way to close
+        # the terminal process, but do not advertise it as the normal workflow.
+        if normalized in {"exit", "quit"}:
+            speak("Closing SANVI.")
+            log("SANVI process closed.")
             break
+
         run_command(command)
+        if session_active:
+            log("Ready for your next command.")
 
 
 if __name__ == "__main__":
