@@ -429,6 +429,55 @@ SANVI_VOICE_LANGUAGE=hi-IN
 
 # Starting SANVI
 
+## PowerShell: how to run the BAT files
+
+If you are using **PowerShell**, Windows does not execute files from the current directory by bare filename. Use `./` (written as `.`\ on Windows) before the BAT filename.
+
+From the repository directory:
+
+```powershell
+.\start_sanvi.bat
+```
+
+For background voice mode:
+
+```powershell
+.\start_sanvi_background.bat
+```
+
+For Administrator mode:
+
+```powershell
+.\start_sanvi_admin.bat
+```
+
+If you are using **Command Prompt (CMD)**, the equivalent commands are:
+
+```cmd
+start_sanvi.bat
+start_sanvi_background.bat
+start_sanvi_admin.bat
+```
+
+### If PowerShell says "The term 'start_sanvi.bat' is not recognized"
+
+This does **not** mean the BAT file is missing. It means PowerShell does not search the current directory for commands by default.
+
+Use:
+
+```powershell
+.\start_sanvi.bat
+```
+
+You can confirm that the files exist with:
+
+```powershell
+Get-ChildItem .\start_sanvi*.bat
+```
+
+You should see the SANVI launcher files listed.
+
+
 ## Visible native mode
 
 ```text
