@@ -68,7 +68,8 @@ def main() -> None:
                         pass
 
                 try:
-                    result = execute(command, on_step=progress)
+                    allow_dangerous = os.getenv("SANVI_ALLOW_AUTOMATIC_DANGEROUS", "").lower() in {"1","true","yes"}
+                    result = execute(command, on_step=progress, allow_dangerous=allow_dangerous)
                     report(task_id, "COMPLETED", result, 1, 1, result[:500])
                     speak(result.splitlines()[-1][:250])
                 except Exception as exc:
