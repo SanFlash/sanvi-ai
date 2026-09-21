@@ -104,6 +104,13 @@ ANDROID_ALIASES = {
 }
 
 STOP = threading.Event()
+PAUSE = threading.Event()
+TASK_CONTEXT: list[dict[str, str]] = []
+
+
+def wait_if_paused() -> None:
+    while PAUSE.is_set() and not STOP.is_set():
+        time.sleep(0.2)
 
 
 def log(message: str) -> None:
@@ -518,7 +525,7 @@ def execute_ai_action(tool: str, args: dict, original_command: str, allow_danger
 def execute_ai_task(command: str, allow_dangerous: bool = False) -> str:
     if not ai_plan:
         raise RuntimeError("AI planner is unavailable. Check sanvi_planner.py and httpx.")
-    context: list[dict[str, str]] = []
+    context: list[dict[str, str]] = list(TASK_CONTEXT[-12:])
     last_screenshot = Path.cwd() / "runtime" / "screenshots" / "desktop.png"
     for round_no in range(1, 7):
         # Fresh visual state before every planning round.
@@ -534,6 +541,7 @@ def execute_ai_task(command: str, allow_dangerous: bool = False) -> str:
         if decision.get("done") and not actions:
             return reply or "Task completed."
         for action in actions:
+            wait_if_paused()
             if not isinstance(action, dict):
                 continue
             tool = str(action.get("tool", "")).strip()
@@ -562,7 +570,22 @@ def execute_one(command: str, allow_dangerous: bool = False) -> str:
 
     if low in {"stop", "stop sanvi", "emergency stop"}:
         STOP.set()
+        PAUSE.clear()
         return "Stop requested."
+
+    if low in {"pause", "pause sanvi", "wait"}:
+        PAUSE.set()
+        return "SANVI paused. Say resume when you want me to continue."
+
+    if low in {"resume", "resume sanvi", "continue"}:
+        PAUSE.clear()
+        return "SANVI resumed."
+
+    if low in {"undo", "undo last action"}:
+        return press_keys("ctrl+z")
+
+    if low in {"redo", "redo last action"}:
+        return press_keys("ctrl+y")
 
     m = re.match(r"^(?:confirm\s+)?delete\s+(?:file\s+)?(.+)$", x, re.I | re.S)
     if m:
@@ -715,6 +738,7 @@ def execute(command: str, on_step: Optional[Callable[[int, int, str], None]] = N
     results = []
     total = len(steps)
     for index, step in enumerate(steps, 1):
+        wait_if_paused()
         if STOP.is_set():
             raise RuntimeError("Task stopped.")
         if on_step:
@@ -754,10 +778,13 @@ def install_hotkey() -> None:
 
 
 def run_command(command: str) -> None:
+    global TASK_CONTEXT
     log(f"> {command}")
     try:
         allow_dangerous = os.getenv("SANVI_ALLOW_AUTOMATIC_DANGEROUS", "").lower() in {"1","true","yes"}
         result = execute(command, allow_dangerous=allow_dangerous)
+        TASK_CONTEXT.append({"user": command, "assistant": str(result)[:3000]})
+        TASK_CONTEXT = TASK_CONTEXT[-20:]
         log(result)
         speak(result.splitlines()[-1][:250])
         relay_result("COMPLETED", result)
