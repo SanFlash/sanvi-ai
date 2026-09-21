@@ -29,6 +29,8 @@ import sys
 import threading
 import time
 import webbrowser
+import urllib.parse
+import json
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -61,6 +63,11 @@ try:
     from playwright.sync_api import sync_playwright
 except Exception:
     sync_playwright = None
+
+try:
+    import cv2
+except Exception:
+    cv2 = None
 
 APP_ALIASES = {
     "notepad": ["notepad.exe"],
@@ -208,6 +215,137 @@ def screenshot(path: Optional[str] = None) -> str:
     return f"Screenshot saved to {target}"
 
 
+
+def system_info() -> str:
+    info = {
+        "computer": platform.node(),
+        "os": platform.platform(),
+        "python": platform.python_version(),
+        "processor": platform.processor(),
+        "machine": platform.machine(),
+        "cwd": str(Path.cwd()),
+    }
+    return json.dumps(info, indent=2)
+
+
+def list_processes(filter_text: str = "") -> str:
+    command = "Get-Process | Select-Object Id,ProcessName,CPU,WorkingSet | Sort-Object ProcessName"
+    if filter_text:
+        escaped = filter_text.replace("'", "''")
+        command = f"Get-Process -Name '*{escaped}*' -ErrorAction SilentlyContinue | Select-Object Id,ProcessName,CPU,WorkingSet"
+    return powershell(command)
+
+
+def list_files(path: str = ".") -> str:
+    target = Path(path).expanduser().resolve()
+    if not target.exists():
+        raise FileNotFoundError(str(target))
+    if target.is_file():
+        return str(target)
+    rows = []
+    for item in sorted(target.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
+        rows.append(f"{'[DIR]' if item.is_dir() else '[FILE]'} {item.name}")
+    return "\n".join(rows) or "(empty)"
+
+
+def read_file(path: str) -> str:
+    target = Path(path.strip().strip('"')).expanduser().resolve()
+    if not target.is_file():
+        raise FileNotFoundError(str(target))
+    data = target.read_text(encoding="utf-8", errors="replace")
+    return data[:30000] + ("\n...[truncated]" if len(data) > 30000 else "")
+
+
+def write_file(path: str, content: str) -> str:
+    target = Path(path.strip().strip('"')).expanduser().resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
+    return f"Wrote {len(content)} characters to {target}"
+
+
+def delete_file(path: str, allow: bool = False) -> str:
+    if not allow:
+        raise PermissionError("Deletion requires explicit confirmation. Say 'confirm delete <path>' or set SANVI_ALLOW_AUTOMATIC_DANGEROUS=true.")
+    target = Path(path.strip().strip('"')).expanduser().resolve()
+    if target.is_dir():
+        import shutil
+        shutil.rmtree(target)
+    elif target.exists():
+        target.unlink()
+    else:
+        raise FileNotFoundError(str(target))
+    return f"Deleted {target}"
+
+
+def camera_indices(max_index: int = 10) -> list[int]:
+    if not cv2:
+        raise RuntimeError("OpenCV is not installed. Install requirements-local.txt.")
+    found = []
+    for index in range(max_index):
+        cap = cv2.VideoCapture(index, cv2.CAP_DSHOW if platform.system() == "Windows" else 0)
+        ok = cap.isOpened()
+        if ok:
+            found.append(index)
+        cap.release()
+    return found
+
+
+def camera_photo(index: int = 0, path: str = "") -> str:
+    if not cv2:
+        raise RuntimeError("OpenCV is not installed. Install requirements-local.txt.")
+    backend = cv2.CAP_DSHOW if platform.system() == "Windows" else 0
+    cap = cv2.VideoCapture(index, backend)
+    if not cap.isOpened():
+        raise RuntimeError(f"Cannot open camera {index}. Check Windows camera permission and that no other app is using it.")
+    ok, frame = cap.read()
+    cap.release()
+    if not ok:
+        raise RuntimeError("Camera opened but did not return a frame.")
+    target = Path(path).expanduser().resolve() if path else Path.cwd() / "runtime" / "camera" / f"photo_{int(time.time())}.jpg"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(target), frame)
+    return f"Camera photo saved to {target}"
+
+
+def camera_preview(index: int = 0) -> str:
+    if not cv2:
+        raise RuntimeError("OpenCV is not installed. Install requirements-local.txt.")
+    backend = cv2.CAP_DSHOW if platform.system() == "Windows" else 0
+    cap = cv2.VideoCapture(index, backend)
+    if not cap.isOpened():
+        raise RuntimeError(f"Cannot open camera {index}. Check Windows camera permission.")
+    log("Camera preview active. Press Q in the preview window to close it.")
+    while True:
+        ok, frame = cap.read()
+        if not ok:
+            break
+        cv2.imshow("SANVI Camera", frame)
+        if cv2.waitKey(1) & 0xFF == ord("q"):
+            break
+    cap.release()
+    cv2.destroyAllWindows()
+    return "Camera preview closed."
+
+
+def android_ui_dump() -> str:
+    raw = adb("shell", "uiautomator", "dump", "/sdcard/window.xml")
+    xml = adb("shell", "cat", "/sdcard/window.xml")
+    return xml[:30000] if xml else raw
+
+
+def android_tap_text(text: str) -> str:
+    xml = android_ui_dump()
+    needle = text.strip().lower()
+    # Parse bounds from UiAutomator XML without requiring a full XML dependency.
+    pattern = re.compile(r'<node[^>]*text="([^"]*)"[^>]*bounds="\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]"[^>]*/?>')
+    for label, x1, y1, x2, y2 in pattern.findall(xml):
+        if needle in label.lower():
+            x = (int(x1) + int(x2)) // 2
+            y = (int(y1) + int(y2)) // 2
+            return android_tap(x, y)
+    raise ValueError(f"Android UI text not found: {text}")
+
+
 def adb_path() -> str:
     value = os.getenv("ANDROID_ADB") or os.getenv("ADB")
     if value:
@@ -300,13 +438,51 @@ def split_steps(command: str) -> list[str]:
     return [s.strip() for s in re.split(r"\s+(?:then|after that)\s+", normalized, flags=re.I) if s.strip()]
 
 
-def execute_one(command: str) -> str:
+def execute_one(command: str, allow_dangerous: bool = False) -> str:
     x = command.strip()
     low = x.lower()
 
     if low in {"stop", "stop sanvi", "emergency stop"}:
         STOP.set()
         return "Stop requested."
+
+    m = re.match(r"^(?:confirm\s+)?delete\s+(?:file\s+)?(.+)$", x, re.I | re.S)
+    if m:
+        confirmed = low.startswith("confirm delete") or allow_dangerous
+        return delete_file(m.group(1), allow=confirmed)
+
+    m = re.match(r"^(?:create|write)\s+(?:file\s+)?(.+?)\s+(?:with|content)\s*:\s*(.*)$", x, re.I | re.S)
+    if m:
+        return write_file(m.group(1), m.group(2))
+
+    m = re.match(r"^(?:read|show|cat)\s+(?:file\s+)?(.+)$", x, re.I | re.S)
+    if m:
+        return read_file(m.group(1))
+
+    m = re.match(r"^(?:list|show)\s+(?:files|folder|directory)(?:\s+(.+))?$", x, re.I)
+    if m:
+        return list_files(m.group(1) or ".")
+
+    if low in {"system info", "computer info", "pc info", "system status"}:
+        return system_info()
+
+    m = re.match(r"^(?:list|show)\s+process(?:es)?(?:\s+(.+))?$", x, re.I)
+    if m:
+        return list_processes(m.group(1) or "")
+
+    if low in {"camera list", "list cameras", "show cameras"}:
+        return json.dumps(camera_indices())
+
+    m = re.match(r"^camera\s+(?:photo|capture)(?:\s+(\d+))?(?:\s+(.+))?$", x, re.I)
+    if m:
+        return camera_photo(int(m.group(1) or 0), m.group(2) or "")
+
+    m = re.match(r"^camera\s+(?:preview|start)(?:\s+(\d+))?$", x, re.I)
+    if m:
+        return camera_preview(int(m.group(1) or 0))
+
+    if low in {"camera stop", "stop camera"}:
+        return "Camera preview can be closed with Q in the preview window."
 
     if re.fullmatch(r"(hello|hi|hey sanvi|status)", low):
         return f"SANVI is online on {platform.node()}."
@@ -354,6 +530,13 @@ def execute_one(command: str) -> str:
     if low in {"android devices", "list android devices", "adb devices"}:
         return android_devices()
 
+    if low in {"android ui", "android ui dump", "android screen xml"}:
+        return android_ui_dump()
+
+    m = re.match(r"^android\s+(?:tap|click)\s+text\s+(.+)$", x, re.I)
+    if m:
+        return android_tap_text(m.group(1))
+
     m = re.match(r"^(?:android\s+)?open\s+app\s+(.+)$", x, re.I)
     if m:
         return android_open(m.group(1))
@@ -377,6 +560,20 @@ def execute_one(command: str) -> str:
     if re.match(r"^https?://", x, re.I):
         return browser_open(x)
 
+    if low in {"shutdown", "shut down", "turn off computer"}:
+        if not allow_dangerous:
+            raise PermissionError("Shutdown requires explicit confirmation. Say 'confirm shutdown'.")
+        return powershell("Stop-Computer -Force")
+
+    if low in {"restart", "restart computer", "reboot computer"}:
+        if not allow_dangerous:
+            raise PermissionError("Restart requires explicit confirmation. Say 'confirm restart'.")
+        return powershell("Restart-Computer -Force")
+
+    m = re.match(r"^confirm\s+(shutdown|restart)$", low)
+    if m:
+        return execute_one(m.group(1), allow_dangerous=True)
+
     raise ValueError(
         "I understand the command, but no executor matched it yet. "
         "Try a complete command such as: "
@@ -386,7 +583,7 @@ def execute_one(command: str) -> str:
     )
 
 
-def execute(command: str, on_step: Optional[Callable[[int, int, str], None]] = None) -> str:
+def execute(command: str, on_step: Optional[Callable[[int, int, str], None]] = None, allow_dangerous: bool = False) -> str:
     STOP.clear()
     steps = split_steps(command)
     results = []
@@ -397,7 +594,7 @@ def execute(command: str, on_step: Optional[Callable[[int, int, str], None]] = N
         if on_step:
             on_step(index, total, step)
         log(f"{index}/{total}: {step}")
-        results.append(execute_one(step))
+        results.append(execute_one(step, allow_dangerous=allow_dangerous))
     return "\n".join(results)
 
 
@@ -433,7 +630,8 @@ def install_hotkey() -> None:
 def run_command(command: str) -> None:
     log(f"> {command}")
     try:
-        result = execute(command)
+        allow_dangerous = os.getenv("SANVI_ALLOW_AUTOMATIC_DANGEROUS", "").lower() in {"1","true","yes"}
+        result = execute(command, allow_dangerous=allow_dangerous)
         log(result)
         speak(result.splitlines()[-1][:250])
         relay_result("COMPLETED", result)
