@@ -13,7 +13,7 @@ import time
 
 import httpx
 
-from sanvi_desktop import execute, log, speak
+from sanvi_desktop import execute, log, speak, STOP, PAUSE
 
 SERVER = os.getenv("SANVI_SERVER_URL", "").rstrip("/")
 TOKEN = os.getenv("SANVI_AGENT_TOKEN", "").strip()
@@ -62,8 +62,19 @@ def main() -> None:
 
                 def progress(step: int, total: int, description: str) -> None:
                     try:
-                        report(task_id, "RUNNING", f"Executing step {step}/{total}: {description}",
-                               step, total, description)
+                        state = client.get(f"{SERVER}/api/tasks/{task_id}", timeout=5).json().get("status")
+                        if state == "CANCELLED":
+                            STOP.set()
+                            PAUSE.clear()
+                            raise RuntimeError("Task cancelled by user.")
+                        if state == "PAUSED":
+                            PAUSE.set()
+                        else:
+                            PAUSE.clear()
+                        report(task_id, "PAUSED" if state == "PAUSED" else "RUNNING",
+                               f"Executing step {step}/{total}: {description}", step, total, description)
+                    except RuntimeError:
+                        raise
                     except Exception:
                         pass
 
