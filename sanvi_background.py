@@ -49,7 +49,8 @@ def main() -> None:
 
                 log(f"VOICE: {command}")
                 try:
-                    result = execute(command)
+                    allow_dangerous = os.getenv("SANVI_ALLOW_AUTOMATIC_DANGEROUS", "").lower() in {"1","true","yes"}
+                    result = execute(command, allow_dangerous=allow_dangerous)
                     log(result)
                     speak(result.splitlines()[-1][:250])
                 except Exception as exc:
