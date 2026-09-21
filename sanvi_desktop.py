@@ -743,6 +743,9 @@ def execute(command: str, on_step: Optional[Callable[[int, int, str], None]] = N
             raise RuntimeError("Task stopped.")
         if on_step:
             on_step(index, total, step)
+        wait_if_paused()
+        if STOP.is_set():
+            raise RuntimeError("Task stopped.")
         log(f"{index}/{total}: {step}")
         results.append(execute_one(step, allow_dangerous=allow_dangerous))
     return "\n".join(results)
