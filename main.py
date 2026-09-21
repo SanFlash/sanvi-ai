@@ -50,6 +50,15 @@ def auth(token:str|None):
     if token!=AGENT_TOKEN: raise HTTPException(401,"Invalid SANVI agent token")
 
 @app.get("/",response_class=HTMLResponse)
+async def root():
+    return """<!doctype html><html><head><meta charset="utf-8"><title>SANVI AI</title></head>
+    <body style="font-family:system-ui;background:#070b14;color:#e8eefc;padding:40px">
+    <h1>SANVI AI local controller</h1><p>The Windows/Android executor runs on your PC, not inside this webpage.</p>
+    <p>Start <code>start_sanvi.bat</code> on Windows and issue commands directly to SANVI.</p>
+    <p>The web dashboard is optional: <a href="/dashboard" style="color:#7fb0ff">open dashboard</a>.</p>
+    </body></html>"""
+
+@app.get("/dashboard",response_class=HTMLResponse)
 async def dashboard():
     p=TEMPLATES_DIR/"index.html"
     return p.read_text(encoding="utf-8") if p.exists() else "<h1>SANVI AI</h1>"
