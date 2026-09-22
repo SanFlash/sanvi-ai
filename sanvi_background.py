@@ -1,9 +1,10 @@
 """
 SANVI background voice service.
 
-Run this with pythonw.exe on Windows for a no-window/no-iframe experience.
-It listens for a wake phrase, then captures one complete command and sends it
-to the same native executor used by sanvi_desktop.py.
+Keeps a microphone listener alive in the background. Say "Hey Sanvi" or
+"Sanvi" to start a continuous conversational session. Once active, SANVI
+accepts command after command and keeps asking for the next command until
+"Good night" is spoken.
 """
 
 from __future__ import annotations
@@ -14,10 +15,73 @@ import time
 
 import speech_recognition as sr
 
-from sanvi_desktop import execute, log, speak
+from sanvi_desktop import (
+    _is_good_night,
+    _strip_wake_phrase,
+    log,
+    run_command,
+    speak,
+)
 
 WAKE = re.compile(r"^\s*(?:hey\s+sanvi|sanvi)\b[\s,.:;-]*(.*)$", re.I)
 LANGUAGE = os.getenv("SANVI_VOICE_LANGUAGE", "en-IN")
+
+
+def listen_command(recognizer: sr.Recognizer, microphone, timeout=None, phrase_time_limit=30) -> str:
+    audio = recognizer.listen(
+        microphone,
+        timeout=timeout,
+        phrase_time_limit=phrase_time_limit,
+    )
+    return recognizer.recognize_google(audio, language=LANGUAGE).strip()
+
+
+def conversation_loop(
+    recognizer: sr.Recognizer,
+    microphone,
+    first_command: str = "",
+) -> None:
+    """Stay in command mode until Good night."""
+    command = first_command.strip()
+
+    if not command:
+        speak("Yes, I am listening.")
+
+    while True:
+        if _is_good_night(command):
+            speak("Good night. Conversation ended.")
+            log("Good night. SANVI conversation ended; waiting for Hey Sanvi.")
+            return
+
+        if command:
+            log(f"VOICE COMMAND: {command}")
+            run_command(command)
+            speak("What should I do next?")
+
+        try:
+            command = listen_command(
+                recognizer,
+                microphone,
+                timeout=None,
+                phrase_time_limit=30,
+            )
+            command = _strip_wake_phrase(command)
+            if not command:
+                speak("Yes, I am listening.")
+        except sr.UnknownValueError:
+            speak("I didn't catch that. Please say the command again.")
+            command = ""
+        except sr.RequestError as exc:
+            log(f"Speech service error: {exc}")
+            speak("Speech recognition is temporarily unavailable.")
+            time.sleep(2)
+            command = ""
+        except KeyboardInterrupt:
+            raise
+        except Exception as exc:
+            log(f"Conversation voice error: {exc}")
+            speak("I could not hear the command. Please try again.")
+            command = ""
 
 
 def main() -> None:
@@ -26,49 +90,44 @@ def main() -> None:
     recognizer.pause_threshold = 0.7
     recognizer.non_speaking_duration = 0.3
 
-    with sr.Microphone() as microphone:
-        recognizer.adjust_for_ambient_noise(microphone, duration=1.0)
-        log("SANVI background voice service is listening.")
+    try:
+        with sr.Microphone() as microphone:
+            log("Calibrating SANVI microphone...")
+            recognizer.adjust_for_ambient_noise(microphone, duration=1.0)
+            log("SANVI background voice service is ready. Say 'Hey Sanvi'.")
 
-        while True:
-            try:
-                audio = recognizer.listen(microphone, timeout=None, phrase_time_limit=12)
-                heard = recognizer.recognize_google(audio, language=LANGUAGE).strip()
-                match = WAKE.match(heard)
-                if not match:
-                    continue
-
-                command = match.group(1).strip()
-                if not command:
-                    speak("Yes, I am listening.")
-                    audio = recognizer.listen(microphone, timeout=8, phrase_time_limit=30)
-                    command = recognizer.recognize_google(audio, language=LANGUAGE).strip()
-
-                if not command:
-                    continue
-
-                log(f"VOICE: {command}")
+            while True:
                 try:
-                    allow_dangerous = os.getenv("SANVI_ALLOW_AUTOMATIC_DANGEROUS", "").lower() in {"1","true","yes"}
-                    result = execute(command, allow_dangerous=allow_dangerous)
-                    log(result)
-                    speak(result.splitlines()[-1][:250])
-                except Exception as exc:
-                    log(f"FAILED: {exc}")
-                    speak(f"Task failed. {str(exc)[:180]}")
+                    heard = listen_command(
+                        recognizer,
+                        microphone,
+                        timeout=None,
+                        phrase_time_limit=12,
+                    )
+                    match = WAKE.match(heard)
+                    if not match:
+                        continue
 
-            except sr.WaitTimeoutError:
-                continue
-            except sr.UnknownValueError:
-                continue
-            except sr.RequestError as exc:
-                log(f"Speech service error: {exc}")
-                time.sleep(3)
-            except KeyboardInterrupt:
-                break
-            except Exception as exc:
-                log(f"Voice service error: {exc}")
-                time.sleep(2)
+                    command = match.group(1).strip()
+                    if _is_good_night(command):
+                        speak("Good night.")
+                        continue
+
+                    log("Wake phrase detected.")
+                    conversation_loop(recognizer, microphone, command)
+
+                except sr.UnknownValueError:
+                    continue
+                except sr.RequestError as exc:
+                    log(f"Speech service error: {exc}")
+                    time.sleep(3)
+                except KeyboardInterrupt:
+                    break
+                except Exception as exc:
+                    log(f"Background voice service error: {exc}")
+                    time.sleep(2)
+    finally:
+        log("SANVI background voice service stopped.")
 
 
 if __name__ == "__main__":
