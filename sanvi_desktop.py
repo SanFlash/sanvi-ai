@@ -24,6 +24,7 @@ import base64
 import os
 import platform
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -98,6 +99,22 @@ APP_ALIASES = {
     "google chrome": ["chrome.exe"],
     "edge": ["msedge.exe"],
     "microsoft edge": ["msedge.exe"],
+    "visual studio code": ["Code.exe"],
+    "vs code": ["Code.exe"],
+    "vscode": ["Code.exe"],
+    "word": ["WINWORD.EXE"],
+    "excel": ["EXCEL.EXE"],
+    "powerpoint": ["POWERPNT.EXE"],
+    "spotify": ["Spotify.exe"],
+}
+    
+WEBSITE_ALIASES = {
+    "google": "https://www.google.com",
+    "youtube": "https://www.youtube.com",
+    "github": "https://github.com",
+    "gmail": "https://mail.google.com",
+    "chatgpt": "https://chatgpt.com",
+    "google drive": "https://drive.google.com",
 }
 
 ANDROID_ALIASES = {
@@ -171,19 +188,72 @@ def open_windows_camera() -> str:
         raise RuntimeError(f"Could not launch Windows Camera: {exc}")
 
 
+def _windows_executable_candidates(executable: str) -> list[str]:
+    """Return common Windows locations for an executable."""
+    candidates = [executable]
+    roots = [
+        os.getenv("LOCALAPPDATA", ""),
+        os.getenv("PROGRAMFILES", ""),
+        os.getenv("PROGRAMFILES(X86)", ""),
+    ]
+    for root in roots:
+        if not root:
+            continue
+        candidates.extend([
+            str(Path(root) / "Google" / "Chrome" / "Application" / executable),
+            str(Path(root) / "Microsoft" / "Edge" / "Application" / executable),
+            str(Path(root) / "Microsoft VS Code" / "bin" / executable),
+            str(Path(root) / "Microsoft VS Code" / executable),
+            str(Path(root) / "WindowsApps" / executable),
+        ])
+    return candidates
+
+
+def _resolve_executable(executable: str) -> str | None:
+    direct = shutil.which(executable)
+    if direct:
+        return direct
+    for candidate in _windows_executable_candidates(executable):
+        if Path(candidate).is_file():
+            return candidate
+    return None
+
+
 def open_app(name: str) -> str:
-    key = name.strip().lower()
+    key = re.sub(r"\s+", " ", name.strip().lower())
     if key in {"camera", "windows camera", "camera app"}:
         return open_windows_camera()
+
+    if key in WEBSITE_ALIASES:
+        return browser_open(WEBSITE_ALIASES[key])
+
     command = APP_ALIASES.get(key)
     if command:
-        try:
-            subprocess.Popen(command, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-            return f"Opened {name}."
-        except FileNotFoundError:
-            pass
-    subprocess.Popen(["explorer.exe", name], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-    return f"Opened {name}."
+        executable = _resolve_executable(command[0])
+        if not executable:
+            raise FileNotFoundError(
+                f"Could not find the installed application '{name}'. "
+                f"Expected executable: {command[0]}"
+            )
+        subprocess.Popen([executable], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return f"Opened {name}."
+
+    target = name.strip().strip('"')
+    if re.match(r"^(?:https?://|www\.)", target, re.I):
+        return browser_open(target)
+
+    path = Path(target).expanduser()
+    if path.exists():
+        if path.is_dir():
+            subprocess.Popen(["explorer.exe", str(path)])
+        else:
+            subprocess.Popen([str(path)])
+        return f"Opened {target}."
+
+    raise ValueError(
+        f"I could not identify '{name}' as a known Windows application, file, folder, or website. "
+        "I did not open a different program."
+    )
 
 
 def close_app(name: str) -> str:
@@ -574,20 +644,37 @@ def normalize_hinglish(command: str) -> str:
         m = re.match(pattern, low, re.I)
         if m:
             return re.sub(pattern, replacement, x, flags=re.I)
+    
+    # Common spoken punctuation / filler at the end should not change intent.
+    x = re.sub(r"[,.!?]+$", "", x).strip()
     return x
 
 
 def split_steps(command: str) -> list[str]:
-    # Preserve common phrases such as "open Chrome and search for Playwright".
-    normalized = command.strip()
-    m = re.match(r"^(open|launch|start)\s+(chrome|edge|browser)\s+and\s+search\s+(?:for\s+)?(.+)$", normalized, re.I)
-    if m:
-        return [f"open {m.group(2)}", f"search for {m.group(3)}"]
-    m = re.match(r"^(open|launch|start)\s+(.+?)\s+and\s+type\s+(.+)$", normalized, re.I)
-    if m:
-        return [f"open {m.group(2)}", f"type {m.group(3)}"]
-    # Explicit step separator.
-    return [s.strip() for s in re.split(r"\s+(?:then|after that)\s+", normalized, flags=re.I) if s.strip()]
+    """Convert a small set of unambiguous multi-step requests into deterministic steps."""
+    normalized = command.strip().rstrip(".!?")
+    
+    patterns = [
+        (r"^(open|launch|start)\s+(chrome|google chrome|edge|microsoft edge|browser)\s+and\s+search\s+(?:for\s+)?(.+)$",
+         lambda m: [f"open {m.group(2)}", f"search for {m.group(3)}"]),
+        (r"^(open|launch|start)\s+(.+?)\s+and\s+(?:then\s+)?(?:search|google)\s+(?:for\s+)?(.+)$",
+         lambda m: [f"open {m.group(2)}", f"search for {m.group(3)}"]),
+        (r"^(open|launch|start)\s+(.+?)\s+and\s+(?:then\s+)?(?:go to|navigate to)\s+(.+)$",
+         lambda m: [f"open {m.group(2)}", f"go to {m.group(3)}"]),
+        (r"^(open|launch|start)\s+(.+?)\s+and\s+(?:then\s+)?type\s+(.+)$",
+         lambda m: [f"open {m.group(2)}", f"type {m.group(3)}"]),
+    ]
+    for pattern, builder in patterns:
+        match = re.match(pattern, normalized, re.I)
+        if match:
+            return builder(match)
+    
+    # Explicit separators are safe because "then" is rarely part of an app name.
+    return [
+        s.strip()
+        for s in re.split(r"\s+(?:then|after that)\s+", normalized, flags=re.I)
+        if s.strip()
+    ]
 
 
 
@@ -749,13 +836,7 @@ def execute_one(command: str, allow_dangerous: bool = False) -> str:
 
     m = re.match(r"^(?:open|launch|start)\s+(.+?)\s*$", x, re.I)
     if m:
-        target = m.group(1).strip()
-        if target.lower() in {"chrome", "google chrome"}:
-            return open_app("chrome")
-        if target.lower() in {"edge", "microsoft edge"}:
-            return open_app("edge")
-        if target.lower() == "browser":
-            return browser_open("https://www.google.com")
+        target = re.sub(r"\s+", " ", m.group(1).strip().strip(".!?"))
         return open_app(target)
 
     m = re.match(r"^(?:close|quit|exit)\s+(.+?)\s*$", x, re.I)
