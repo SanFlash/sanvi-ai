@@ -1066,6 +1066,8 @@ def _voice_session_loop(recognizer: "sr.Recognizer", microphone, first_command: 
         if command:
             log(f"Heard: {command}")
             run_command(command)
+            # run_command handles failures by asking what to do with the
+            # visible error. On success, continue with the normal prompt.
             speak("What should I do next?")
 
         try:
@@ -1159,10 +1161,40 @@ def run_command(command: str) -> None:
         speak(result.splitlines()[-1][:250])
         relay_result("COMPLETED", result)
     except Exception as exc:
-        log(f"ERROR: Command failed: {exc}")
+        error_text = str(exc).strip() or "Unknown error"
+        log(f"ERROR: Command failed: {error_text}")
         traceback.print_exc()
-        _speak_failure("command")
-        relay_result("FAILED", str(exc))
+
+        # A failed action should never end the active SANVI session.
+        # Capture the current desktop so the next instruction can refer to
+        # the visible error and ask SANVI what to do with it.
+        screen_path = Path.cwd() / "runtime" / "screenshots" / "error_latest.png"
+        screen_note = ""
+        try:
+            if pyautogui:
+                screen_path.parent.mkdir(parents=True, exist_ok=True)
+                pyautogui.screenshot().save(screen_path)
+                upload_screenshot(screen_path)
+                screen_note = f" Screenshot captured: {screen_path}"
+                log(f"ERROR SCREEN: {screen_path}")
+        except Exception as screen_exc:
+            log(f"ERROR SCREEN capture failed: {screen_exc}")
+
+        TASK_CONTEXT.append({
+            "user": command,
+            "assistant": f"ERROR: {error_text}{screen_note}",
+        })
+        TASK_CONTEXT = TASK_CONTEXT[-20:]
+
+        # Keep the conversation alive. The user can immediately give a
+        # follow-up such as "click Retry", "take me back", or "fix it".
+        follow_up = (
+            "I am getting an error on the screen. "
+            "What would you like me to perform on it?"
+        )
+        log(f"SANVI: {follow_up}")
+        speak(follow_up)
+        relay_result("FAILED", f"{error_text}{screen_note}")
 
 
 
@@ -1221,7 +1253,7 @@ def interactive() -> None:
             continue
 
         run_command(command)
-        log("Ready for your next command.")
+        log("SANVI is still active. Waiting for your next command...")
 
 
 if __name__ == "__main__":
