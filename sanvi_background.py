@@ -35,7 +35,7 @@ def listen_command(recognizer: sr.Recognizer, microphone, timeout=None, phrase_t
         phrase_time_limit=phrase_time_limit,
     )
     last_error = None
-    for language in dict.fromkeys([LANGUAGE, "en-US"]):
+    for language in dict.fromkeys([LANGUAGE, "en-US", "hi-IN"]):
         try:
             result = recognizer.recognize_google(audio, language=language).strip()
             if result:
