@@ -1748,6 +1748,49 @@ SANVI's local voice mode is designed as a **continuous conversation**, not a one
 
 ### Important: basic commands do not require an AI API key
 
+### Deterministic command routing (stability mode)
+
+Before SANVI uses the AI planner, the local executor now tries to resolve the command deterministically. This is the preferred path for common Windows operations because it does not depend on an AI key and avoids an AI model choosing the wrong tool.
+
+Supported examples include:
+
+~~~text
+open Chrome
+open Google Chrome
+launch Chrome
+can you open Chrome
+please open Notepad
+open Calculator
+open Paint
+open Edge
+open VS Code
+open Visual Studio Code
+open Google
+open YouTube
+open GitHub
+open Gmail
+open ChatGPT
+take screenshot
+search for Playwright
+go to github.com
+~~~
+
+### Important routing behavior
+
+- **Known applications are launched by their actual executable**, not by opening an Explorer search result.
+- Chrome and Edge are resolved from PATH and common Windows installation locations.
+- VS Code, Office applications, Spotify, Notepad, Calculator, Paint, PowerShell, CMD and Task Manager have deterministic mappings.
+- Website names such as `Google`, `YouTube`, `GitHub`, `Gmail` and `ChatGPT` are treated as websites rather than Windows applications.
+- `open browser` opens Google in the default browser.
+- If SANVI cannot identify the requested target, it **does not silently open another application**. It reports the exact unresolved target instead.
+- Application launch is checked after starting the process when `psutil` is available. SANVI reports a failure instead of claiming success when the requested executable is not running.
+- Multi-step commands such as `open Chrome and search for Playwright`, `open Chrome and go to github.com`, and `open Notepad and type hello` are split into deterministic steps.
+- `then` and `after that` are supported as explicit step separators.
+- Natural-language wrappers such as `can you`, `could you`, `would you`, `will you`, `please`, and `pls` are removed before command routing.
+
+This is the **Phase 1 stability behavior**. The goal is to make ordinary commands predictable before moving to broader AI computer-use planning.
+
+
 Commands that SANVI can execute deterministically are handled locally first. For example:
 
 ~~~text
@@ -2016,6 +2059,9 @@ WAIT INDEFINITELY FOR USER RESPONSE
 | Background voice | `start_sanvi_background.bat` |
 | Admin runtime | `start_sanvi_admin.bat` |
 | Open app | `open Chrome` |
+| Open website | `open Google` |
+| Conversational open | `can you open Chrome` |
+| Multi-step browser | `open Chrome and search for Playwright` |
 | Screenshot | `take screenshot` |
 | System information | `system info` |
 | Processes | `list processes chrome` |
