@@ -892,8 +892,8 @@ def execute(command: str, on_step: Optional[Callable[[int, int, str], None]] = N
 
 
 def _is_good_night(text: str) -> bool:
-    normalized = re.sub(r"[^a-zA-Z\\s]", " ", text or "").strip().lower()
-    normalized = re.sub(r"\\s+", " ", normalized)
+    normalized = re.sub(r"[^a-zA-Z\s]", " ", text or "").strip().lower()
+    normalized = re.sub(r"\s+", " ", normalized)
     return normalized in {
         "good night",
         "goodnight",
@@ -906,7 +906,7 @@ def _is_good_night(text: str) -> bool:
 
 def _strip_wake_phrase(text: str) -> str:
     return re.sub(
-        r"^\\s*(?:hey\\s+sanvi|sanvi)\\s*[,.:;-]?\\s*",
+        r"^\s*(?:hey\s+sanvi|sanvi)\s*[,.:;-]?\s*",
         "",
         (text or "").strip(),
         flags=re.I,
