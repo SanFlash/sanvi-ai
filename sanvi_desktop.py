@@ -546,8 +546,15 @@ def upload_screenshot(path: Path) -> None:
 
 
 def normalize_hinglish(command: str) -> str:
-    """Map common Hindi/Hinglish voice phrases to canonical executor commands."""
+    """Normalize natural conversational wrappers and common Hindi/Hinglish phrases."""
     x = command.strip()
+    # Users should not need command syntax. Example: "can you open Chrome" -> "open Chrome".
+    x = re.sub(
+        r"^\s*(?:hey\s+sanvi[,:;.!-]*\s*)?(?:can\s+you|could\s+you|would\s+you|will\s+you|please|pls)\s+",
+        "",
+        x,
+        flags=re.I,
+    ).strip()
     low = x.lower().strip()
     replacements = [
         (r"^(?:chrome|google chrome)\s+(?:khol|kholo|open karo|chalao)$", "open Chrome"),
@@ -759,6 +766,10 @@ def execute_one(command: str, allow_dangerous: bool = False) -> str:
     if m:
         return browser_search(m.group(1))
 
+    m = re.match(r"^(?:can|could|would|will)\s+you\s+(.+)$", x, re.I)
+    if m:
+        return execute_one(m.group(1).strip(), allow_dangerous=allow_dangerous)
+
     m = re.match(r"^(?:go\s+to|navigate\s+to)\s+(.+)$", x, re.I)
     if m:
         return browser_open(m.group(1))
@@ -919,6 +930,30 @@ def _speak_failure(kind: str = "command") -> None:
     speak(phrase)
 
 
+def _recognize_voice_audio(recognizer: "sr.Recognizer", audio) -> str:
+    """Recognize one utterance with the configured locale and a safe fallback."""
+    languages = []
+    configured = os.getenv("SANVI_VOICE_LANGUAGE", "en-IN").strip() or "en-IN"
+    for language in (configured, "en-US"):
+        if language not in languages:
+            languages.append(language)
+    last_error = None
+    for language in languages:
+        try:
+            result = recognizer.recognize_google(audio, language=language).strip()
+            if result:
+                log(f"Speech recognized ({language}): {result}")
+                return result
+        except sr.UnknownValueError as exc:
+            last_error = exc
+            continue
+        except sr.RequestError:
+            raise
+    if last_error:
+        raise last_error
+    return ""
+
+
 def _voice_session_loop(recognizer: "sr.Recognizer", microphone, first_command: str = "") -> None:
     """Stay in voice command mode and wait indefinitely for the next response."""
     command = first_command.strip()
@@ -936,11 +971,8 @@ def _voice_session_loop(recognizer: "sr.Recognizer", microphone, first_command: 
 
         try:
             log("Waiting for your next command...")
-            audio = recognizer.listen(microphone, timeout=None, phrase_time_limit=60)
-            heard = recognizer.recognize_google(
-                audio,
-                language=os.getenv("SANVI_VOICE_LANGUAGE", "en-IN"),
-            ).strip()
+            audio = recognizer.listen(microphone, timeout=None, phrase_time_limit=90)
+            heard = _recognize_voice_audio(recognizer, audio)
             if not heard:
                 command = ""
                 continue
@@ -983,7 +1015,8 @@ def voice_session() -> None:
         recognizer.non_speaking_duration = 0.3
         with sr.Microphone() as microphone:
             log("Calibrating microphone...")
-            recognizer.adjust_for_ambient_noise(microphone, duration=0.8)
+            recognizer.adjust_for_ambient_noise(microphone, duration=1.5)
+            recognizer.energy_threshold = max(250, recognizer.energy_threshold)
             speak("SANVI is listening.")
             log("Voice session started. SANVI will wait for every response.")
             log("Say 'Good night' to end the voice session.")
