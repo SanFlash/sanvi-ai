@@ -34,7 +34,21 @@ def listen_command(recognizer: sr.Recognizer, microphone, timeout=None, phrase_t
         timeout=timeout,
         phrase_time_limit=phrase_time_limit,
     )
-    return recognizer.recognize_google(audio, language=LANGUAGE).strip()
+    last_error = None
+    for language in dict.fromkeys([LANGUAGE, "en-US"]):
+        try:
+            result = recognizer.recognize_google(audio, language=language).strip()
+            if result:
+                log(f"Speech recognized ({language}): {result}")
+                return result
+        except sr.UnknownValueError as exc:
+            last_error = exc
+            continue
+        except sr.RequestError:
+            raise
+    if last_error:
+        raise last_error
+    return ""
 
 
 def conversation_loop(
@@ -64,13 +78,14 @@ def conversation_loop(
                 recognizer,
                 microphone,
                 timeout=None,
-                phrase_time_limit=30,
+                phrase_time_limit=90,
             )
             command = _strip_wake_phrase(command)
             if not command:
                 speak("Yes, I am listening.")
         except sr.UnknownValueError:
-            speak("I didn't catch that. Please say the command again.")
+            log("ERROR: Speech could not be understood; waiting for the next command.")
+            speak("Voice error. Retry.")
             command = ""
         except sr.RequestError as exc:
             log(f"Speech service error: {exc}")
@@ -94,7 +109,8 @@ def main() -> None:
     try:
         with sr.Microphone() as microphone:
             log("Calibrating SANVI microphone...")
-            recognizer.adjust_for_ambient_noise(microphone, duration=1.0)
+            recognizer.adjust_for_ambient_noise(microphone, duration=1.5)
+            recognizer.energy_threshold = max(250, recognizer.energy_threshold)
             log("SANVI background voice service is ready. Say 'Hey Sanvi'.")
 
             while True:
@@ -103,7 +119,7 @@ def main() -> None:
                         recognizer,
                         microphone,
                         timeout=None,
-                        phrase_time_limit=12,
+                        phrase_time_limit=20,
                     )
                     match = WAKE.match(heard)
                     if not match:
