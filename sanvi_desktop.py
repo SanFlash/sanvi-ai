@@ -79,6 +79,11 @@ except Exception:
     cv2 = None
 
 try:
+    import psutil
+except Exception:
+    psutil = None
+
+try:
     from sanvi_planner import plan as ai_plan, describe_image
 except Exception:
     ai_plan = None
@@ -109,6 +114,7 @@ APP_ALIASES = {
 }
     
 WEBSITE_ALIASES = {
+    "browser": "https://www.google.com",
     "google": "https://www.google.com",
     "youtube": "https://www.youtube.com",
     "github": "https://github.com",
@@ -236,6 +242,18 @@ def open_app(name: str) -> str:
                 f"Expected executable: {command[0]}"
             )
         subprocess.Popen([executable], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        time.sleep(0.7)
+        expected = Path(executable).name.lower()
+        if psutil:
+            running = any(
+                str(getattr(proc.info, "name", "") or "").lower() == expected
+                for proc in psutil.process_iter(["name"])
+            )
+            if not running:
+                raise RuntimeError(
+                    f"'{name}' was requested, but Windows did not report {expected} as running."
+                )
+        log(f"INTENT: open_app target={name!r} executable={executable!r}")
         return f"Opened {name}."
 
     target = name.strip().strip('"')
