@@ -70,8 +70,9 @@ def conversation_loop(
 
         if command:
             log(f"VOICE COMMAND: {command}")
-            run_command(command)
-            speak("What should I do next?")
+            success = run_command(command)
+            if success:
+                speak("What should I do next?")
 
         try:
             command = listen_command(
