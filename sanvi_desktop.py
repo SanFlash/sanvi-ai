@@ -1065,10 +1065,9 @@ def _voice_session_loop(recognizer: "sr.Recognizer", microphone, first_command: 
 
         if command:
             log(f"Heard: {command}")
-            run_command(command)
-            # run_command handles failures by asking what to do with the
-            # visible error. On success, continue with the normal prompt.
-            speak("What should I do next?")
+            success = run_command(command)
+            if success:
+                speak("What should I do next?")
 
         try:
             log("Waiting for your next command...")
@@ -1149,7 +1148,7 @@ def install_hotkey() -> None:
         _speak_failure("voice")
 
 
-def run_command(command: str) -> None:
+def run_command(command: str) -> bool:
     global TASK_CONTEXT
     log(f"> {command}")
     try:
@@ -1160,6 +1159,7 @@ def run_command(command: str) -> None:
         log(result)
         speak(result.splitlines()[-1][:250])
         relay_result("COMPLETED", result)
+        return True
     except Exception as exc:
         error_text = str(exc).strip() or "Unknown error"
         log(f"ERROR: Command failed: {error_text}")
@@ -1195,6 +1195,7 @@ def run_command(command: str) -> None:
         log(f"SANVI: {follow_up}")
         speak(follow_up)
         relay_result("FAILED", f"{error_text}{screen_note}")
+        return False
 
 
 
