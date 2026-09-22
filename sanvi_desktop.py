@@ -1071,7 +1071,7 @@ def _voice_session_loop(recognizer: "sr.Recognizer", microphone, first_command: 
 
         try:
             log("Waiting for your next command...")
-            audio = recognizer.listen(microphone, timeout=None, phrase_time_limit=90)
+            audio = recognizer.listen(microphone, timeout=None, phrase_time_limit=180)
             heard = _recognize_voice_audio(recognizer, audio)
             if not heard:
                 command = ""
@@ -1111,12 +1111,12 @@ def voice_session() -> None:
     try:
         recognizer = sr.Recognizer()
         recognizer.dynamic_energy_threshold = True
-        recognizer.pause_threshold = 0.7
-        recognizer.non_speaking_duration = 0.3
+        recognizer.pause_threshold = 1.25
+        recognizer.non_speaking_duration = 0.5
         with sr.Microphone() as microphone:
             log("Calibrating microphone...")
             recognizer.adjust_for_ambient_noise(microphone, duration=1.5)
-            recognizer.energy_threshold = max(250, recognizer.energy_threshold)
+            recognizer.energy_threshold = max(180, recognizer.energy_threshold)
             speak("SANVI is listening.")
             log("Voice session started. SANVI will wait for every response.")
             log("Say 'Good night' to end the voice session.")
