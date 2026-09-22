@@ -1742,6 +1742,255 @@ Before allowing SANVI to control an important machine:
 
 ---
 
+# Continuous Voice Conversation
+
+SANVI's local voice mode is designed as a **continuous conversation**, not a one-command listener.
+
+## Start normal SANVI
+
+From PowerShell:
+
+```powershell
+cd D:\ApplyAI\sanvi-ai-v0.1.2-voice-live-screen\sanvi-ai
+git pull origin main
+.\\start_sanvi.bat
+```
+
+If PowerShell says the command is not recognized, use the `.` prefix exactly as shown:
+
+```powershell
+.\\start_sanvi.bat
+```
+
+SANVI then waits at:
+
+```text
+SANVI — What should I do next?
+```
+
+You can type command after command. SANVI remains active until you say or type:
+
+```text
+Good night
+```
+
+Accepted session-ending phrases include:
+
+- `Good night`
+- `Goodnight`
+- `Good night Sanvi`
+- `Goodnight Sanvi`
+
+## Start continuous voice mode
+
+With the normal runtime running, press:
+
+```text
+Ctrl + Alt + S
+```
+
+SANVI calibrates the microphone and then says that it is listening.
+
+Example:
+
+```text
+You: Open Chrome
+SANVI: [opens Chrome]
+SANVI: What should I do next?
+
+You: Search for Playwright
+SANVI: [performs the search]
+SANVI: What should I do next?
+
+You: Open Notepad
+SANVI: [opens Notepad]
+SANVI: What should I do next?
+
+You: Good night
+SANVI: Good night. SANVI session ended.
+```
+
+### Important voice behavior
+
+- After SANVI asks **"What should I do next?"**, it waits indefinitely for your next response.
+- You do not need to repeat **"Hey Sanvi"** during an active voice conversation.
+- You can say **"Hey Sanvi"** before a command; SANVI strips the wake phrase automatically.
+- One spoken command can contain multiple steps, for example:
+  `Open Chrome and search for Playwright`.
+- The voice session does not end just because one command finishes.
+- **"Good night"** ends the active voice conversation.
+- Pressing `Ctrl + Alt + S` again while a voice session is already running does not start a second microphone session.
+- The normal terminal command loop remains available when voice mode is not active.
+
+## Background voice mode
+
+For hands-free wake-word operation:
+
+```powershell
+.\\start_sanvi_background.bat
+```
+
+Then say:
+
+```text
+Hey Sanvi, open Chrome
+```
+
+SANVI enters continuous conversation mode. After the command finishes it asks for the next command and waits for your response.
+
+Say:
+
+```text
+Good night
+```
+
+to leave the conversation. Background mode then returns to waiting for the next **Hey Sanvi** wake phrase.
+
+## Error handling
+
+SANVI now uses two separate error channels:
+
+### Console
+
+The terminal prints the actual error:
+
+```text
+[SANVI] ERROR: Command failed: <actual error message>
+Traceback (most recent call last):
+...
+```
+
+This is the information to use when reporting a bug.
+
+### Voice
+
+Voice failures intentionally use exactly **three words**:
+
+```text
+Command failed. Retry.
+```
+
+For microphone/speech-service failures:
+
+```text
+Voice error. Retry.
+```
+
+The full technical exception is printed to the console; it is not spoken aloud.
+
+After a command failure, SANVI remains active and asks for the next command. A failed command must not terminate the conversation session.
+
+## Useful conversation commands
+
+### Stop the current task
+
+```text
+stop
+```
+
+This stops the current execution while keeping SANVI available for another command.
+
+### Pause
+
+```text
+pause
+```
+
+### Resume
+
+```text
+resume
+```
+
+### Undo / redo
+
+```text
+undo
+redo
+```
+
+### End the conversation
+
+```text
+Good night
+```
+
+Use `Good night` for the normal conversational shutdown. `exit` and `quit` are still available for closing the native terminal process.
+
+## Recommended first voice test
+
+Use small commands first:
+
+```text
+1. Ctrl + Alt + S
+2. "Open Notepad"
+3. Wait for "What should I do next?"
+4. "Type hello Sanvi"
+5. Wait for the next prompt
+6. "Take screenshot"
+7. Wait for the next prompt
+8. "Good night"
+```
+
+If this sequence works, test a browser workflow:
+
+```text
+1. Ctrl + Alt + S
+2. "Open Chrome and search for Playwright"
+3. Wait for SANVI's next-command prompt
+4. "Good night"
+```
+
+## If voice stops unexpectedly
+
+Check the console first.
+
+1. Confirm the microphone is available in Windows.
+2. Confirm Windows microphone permission is enabled.
+3. Confirm `SpeechRecognition` and `PyAudio` are installed inside SANVI's Python 3.11 environment.
+4. Run:
+
+```powershell
+.\\venv\\Scripts\\python.exe -c "import speech_recognition, pyaudio; print('voice dependencies OK')"
+```
+
+If your environment is named `.venv`, use:
+
+```powershell
+.\\.venv\\Scripts\\python.exe -c "import speech_recognition, pyaudio; print('voice dependencies OK')"
+```
+
+5. Restart SANVI and press `Ctrl + Alt + S`.
+6. If an exception appears, copy the complete console traceback when reporting the problem.
+
+## Current voice design
+
+```text
+Ctrl+Alt+S / Hey Sanvi
+        |
+        v
+Microphone
+        |
+        v
+Speech recognition
+        |
+        v
+Command execution
+        |
+        v
+Result + voice response
+        |
+        v
+"What should I do next?"
+        |
+        v
+WAIT INDEFINITELY FOR USER RESPONSE
+        |
+        +----> next command
+        |
+        +----> "Good night" -> end conversation
+```
+
 # Quick Command Reference
 
 | Purpose | Command |
