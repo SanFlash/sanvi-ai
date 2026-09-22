@@ -28,6 +28,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import webbrowser
 import urllib.parse
 import json
@@ -110,6 +111,7 @@ ANDROID_ALIASES = {
 
 STOP = threading.Event()
 PAUSE = threading.Event()
+VOICE_SESSION_LOCK = threading.Lock()
 TASK_CONTEXT: list[dict[str, str]] = []
 
 
@@ -890,8 +892,8 @@ def execute(command: str, on_step: Optional[Callable[[int, int, str], None]] = N
 
 
 def _is_good_night(text: str) -> bool:
-    normalized = re.sub(r"[^a-zA-Z\s]", " ", text or "").strip().lower()
-    normalized = re.sub(r"\s+", " ", normalized)
+    normalized = re.sub(r"[^a-zA-Z\\s]", " ", text or "").strip().lower()
+    normalized = re.sub(r"\\s+", " ", normalized)
     return normalized in {
         "good night",
         "goodnight",
@@ -904,15 +906,21 @@ def _is_good_night(text: str) -> bool:
 
 def _strip_wake_phrase(text: str) -> str:
     return re.sub(
-        r"^\s*(?:hey\s+sanvi|sanvi)\s*[,.:;-]?\s*",
+        r"^\\s*(?:hey\\s+sanvi|sanvi)\\s*[,.:;-]?\\s*",
         "",
         (text or "").strip(),
         flags=re.I,
     ).strip()
 
 
+def _speak_failure(kind: str = "command") -> None:
+    """Speak exactly three words for failures."""
+    phrase = "Voice error. Retry." if kind == "voice" else "Command failed. Retry."
+    speak(phrase)
+
+
 def _voice_session_loop(recognizer: "sr.Recognizer", microphone, first_command: str = "") -> None:
-    """Run one continuous voice conversation until the user says Good night."""
+    """Stay in voice command mode and wait indefinitely for the next response."""
     command = first_command.strip()
 
     while True:
@@ -924,15 +932,11 @@ def _voice_session_loop(recognizer: "sr.Recognizer", microphone, first_command: 
         if command:
             log(f"Heard: {command}")
             run_command(command)
-            if _is_good_night(command):
-                speak("Good night. SANVI session ended.")
-                log("Good night. Voice session ended.")
-                return
             speak("What should I do next?")
 
         try:
-            log("Listening for your next command...")
-            audio = recognizer.listen(microphone, timeout=None, phrase_time_limit=30)
+            log("Waiting for your next command...")
+            audio = recognizer.listen(microphone, timeout=None, phrase_time_limit=60)
             heard = recognizer.recognize_google(
                 audio,
                 language=os.getenv("SANVI_VOICE_LANGUAGE", "en-IN"),
@@ -940,50 +944,59 @@ def _voice_session_loop(recognizer: "sr.Recognizer", microphone, first_command: 
             if not heard:
                 command = ""
                 continue
-
             log(f"Heard: {heard}")
             command = _strip_wake_phrase(heard)
             if not command:
                 speak("Yes, I am listening.")
         except sr.UnknownValueError:
-            speak("I didn't catch that. Please say the command again.")
+            log("ERROR: Speech could not be understood.")
+            _speak_failure("voice")
             command = ""
         except sr.RequestError as exc:
-            log(f"Speech service error: {exc}")
-            speak("Speech recognition is temporarily unavailable.")
+            log(f"ERROR: Speech recognition service: {exc}")
+            traceback.print_exc()
+            _speak_failure("voice")
             time.sleep(2)
             command = ""
         except KeyboardInterrupt:
             raise
         except Exception as exc:
-            log(f"Voice session error: {exc}")
-            speak("I could not hear the command. Please try again.")
+            log(f"ERROR: Voice session: {exc}")
+            traceback.print_exc()
+            _speak_failure("voice")
             command = ""
 
 
 def voice_session() -> None:
-    """Start continuous microphone mode and remain active until Good night."""
+    """Start one serialized continuous microphone session until Good night."""
     if not sr:
-        log("Voice input is unavailable. Install SpeechRecognition + PyAudio.")
+        log("ERROR: SpeechRecognition/PyAudio is unavailable.")
+        _speak_failure("voice")
         return
-
-    recognizer = sr.Recognizer()
-    recognizer.dynamic_energy_threshold = True
-    recognizer.pause_threshold = 0.7
-    recognizer.non_speaking_duration = 0.3
-
+    if not VOICE_SESSION_LOCK.acquire(blocking=False):
+        log("Voice session is already active; ignoring duplicate start request.")
+        return
     try:
+        recognizer = sr.Recognizer()
+        recognizer.dynamic_energy_threshold = True
+        recognizer.pause_threshold = 0.7
+        recognizer.non_speaking_duration = 0.3
         with sr.Microphone() as microphone:
             log("Calibrating microphone...")
             recognizer.adjust_for_ambient_noise(microphone, duration=0.8)
             speak("SANVI is listening.")
-            log("Voice conversation started. Say 'Good night' to end it.")
+            log("Voice session started. SANVI will wait for every response.")
+            log("Say 'Good night' to end the voice session.")
             _voice_session_loop(recognizer, microphone)
     except KeyboardInterrupt:
-        log("Voice conversation stopped.")
+        log("Voice session stopped by keyboard interrupt.")
     except Exception as exc:
-        log(f"Voice microphone error: {exc}")
-        speak(f"Voice mode could not start. {str(exc)[:160]}")
+        log(f"ERROR: Voice microphone/session startup: {exc}")
+        traceback.print_exc()
+        _speak_failure("voice")
+    finally:
+        VOICE_SESSION_LOCK.release()
+        log("Voice session is no longer active.")
 
 
 def voice_once() -> None:
@@ -997,14 +1010,16 @@ def install_hotkey() -> None:
         keyboard.add_hotkey("ctrl+alt+s", voice_session)
         log("Global voice hotkey: Ctrl+Alt+S (continuous voice mode)")
     except Exception as exc:
-        log(f"Global hotkey disabled: {exc}")
+        log(f"ERROR: Global voice hotkey disabled: {exc}")
+        traceback.print_exc()
+        _speak_failure("voice")
 
 
 def run_command(command: str) -> None:
     global TASK_CONTEXT
     log(f"> {command}")
     try:
-        allow_dangerous = os.getenv("SANVI_ALLOW_AUTOMATIC_DANGEROUS", "").lower() in {"1","true","yes"}
+        allow_dangerous = os.getenv("SANVI_ALLOW_AUTOMATIC_DANGEROUS", "").lower() in {"1", "true", "yes"}
         result = execute(command, allow_dangerous=allow_dangerous)
         TASK_CONTEXT.append({"user": command, "assistant": str(result)[:3000]})
         TASK_CONTEXT = TASK_CONTEXT[-20:]
@@ -1012,9 +1027,11 @@ def run_command(command: str) -> None:
         speak(result.splitlines()[-1][:250])
         relay_result("COMPLETED", result)
     except Exception as exc:
-        log(f"FAILED: {exc}")
-        speak(f"Task failed. {str(exc)[:180]}")
+        log(f"ERROR: Command failed: {exc}")
+        traceback.print_exc()
+        _speak_failure("command")
         relay_result("FAILED", str(exc))
+
 
 
 def relay_result(status: str, message: str) -> None:
