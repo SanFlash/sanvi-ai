@@ -79,7 +79,7 @@ def conversation_loop(
                 recognizer,
                 microphone,
                 timeout=None,
-                phrase_time_limit=90,
+                phrase_time_limit=180,
             )
             command = _strip_wake_phrase(command)
             if not command:
@@ -104,14 +104,14 @@ def conversation_loop(
 def main() -> None:
     recognizer = sr.Recognizer()
     recognizer.dynamic_energy_threshold = True
-    recognizer.pause_threshold = 0.7
-    recognizer.non_speaking_duration = 0.3
+    recognizer.pause_threshold = 1.25
+    recognizer.non_speaking_duration = 0.5
 
     try:
         with sr.Microphone() as microphone:
             log("Calibrating SANVI microphone...")
             recognizer.adjust_for_ambient_noise(microphone, duration=1.5)
-            recognizer.energy_threshold = max(250, recognizer.energy_threshold)
+            recognizer.energy_threshold = max(180, recognizer.energy_threshold)
             log("SANVI background voice service is ready. Say 'Hey Sanvi'.")
 
             while True:
