@@ -888,31 +888,114 @@ def execute(command: str, on_step: Optional[Callable[[int, int, str], None]] = N
     return "\n".join(results)
 
 
-def voice_once() -> None:
+
+def _is_good_night(text: str) -> bool:
+    normalized = re.sub(r"[^a-zA-Z\s]", " ", text or "").strip().lower()
+    normalized = re.sub(r"\s+", " ", normalized)
+    return normalized in {
+        "good night",
+        "goodnight",
+        "good night sanvi",
+        "goodnight sanvi",
+        "okay good night",
+        "ok good night",
+    }
+
+
+def _strip_wake_phrase(text: str) -> str:
+    return re.sub(
+        r"^\s*(?:hey\s+sanvi|sanvi)\s*[,.:;-]?\s*",
+        "",
+        (text or "").strip(),
+        flags=re.I,
+    ).strip()
+
+
+def _voice_session_loop(recognizer: "sr.Recognizer", microphone, first_command: str = "") -> None:
+    """Run one continuous voice conversation until the user says Good night."""
+    command = first_command.strip()
+
+    while True:
+        if _is_good_night(command):
+            speak("Good night. SANVI session ended.")
+            log("Good night. Voice session ended.")
+            return
+
+        if command:
+            log(f"Heard: {command}")
+            run_command(command)
+            if _is_good_night(command):
+                speak("Good night. SANVI session ended.")
+                log("Good night. Voice session ended.")
+                return
+            speak("What should I do next?")
+
+        try:
+            log("Listening for your next command...")
+            audio = recognizer.listen(microphone, timeout=None, phrase_time_limit=30)
+            heard = recognizer.recognize_google(
+                audio,
+                language=os.getenv("SANVI_VOICE_LANGUAGE", "en-IN"),
+            ).strip()
+            if not heard:
+                command = ""
+                continue
+
+            log(f"Heard: {heard}")
+            command = _strip_wake_phrase(heard)
+            if not command:
+                speak("Yes, I am listening.")
+        except sr.UnknownValueError:
+            speak("I didn't catch that. Please say the command again.")
+            command = ""
+        except sr.RequestError as exc:
+            log(f"Speech service error: {exc}")
+            speak("Speech recognition is temporarily unavailable.")
+            time.sleep(2)
+            command = ""
+        except KeyboardInterrupt:
+            raise
+        except Exception as exc:
+            log(f"Voice session error: {exc}")
+            speak("I could not hear the command. Please try again.")
+            command = ""
+
+
+def voice_session() -> None:
+    """Start continuous microphone mode and remain active until Good night."""
     if not sr:
-        log("Voice input is optional. Install SpeechRecognition + PyAudio to enable it.")
+        log("Voice input is unavailable. Install SpeechRecognition + PyAudio.")
         return
+
     recognizer = sr.Recognizer()
+    recognizer.dynamic_energy_threshold = True
+    recognizer.pause_threshold = 0.7
+    recognizer.non_speaking_duration = 0.3
+
     try:
-        with sr.Microphone() as source:
-            log("Listening...")
-            recognizer.adjust_for_ambient_noise(source, duration=0.4)
-            audio = recognizer.listen(source, timeout=5, phrase_time_limit=20)
-        text = recognizer.recognize_google(audio, language=os.getenv("SANVI_VOICE_LANGUAGE", "en-IN"))
-        log(f"Heard: {text}")
-        if re.match(r"^\s*(hey\s+sanvi|sanvi)\b", text, re.I):
-            text = re.sub(r"^\s*(hey\s+sanvi|sanvi)\s*[,.:;-]?\s*", "", text, flags=re.I)
-        if text.strip():
-            run_command(text.strip())
+        with sr.Microphone() as microphone:
+            log("Calibrating microphone...")
+            recognizer.adjust_for_ambient_noise(microphone, duration=0.8)
+            speak("SANVI is listening.")
+            log("Voice conversation started. Say 'Good night' to end it.")
+            _voice_session_loop(recognizer, microphone)
+    except KeyboardInterrupt:
+        log("Voice conversation stopped.")
     except Exception as exc:
-        log(f"Voice input: {exc}")
+        log(f"Voice microphone error: {exc}")
+        speak(f"Voice mode could not start. {str(exc)[:160]}")
+
+
+def voice_once() -> None:
+    """Backward-compatible entry point; starts continuous voice mode."""
+    voice_session()
 
 
 def install_hotkey() -> None:
     try:
         import keyboard
-        keyboard.add_hotkey("ctrl+alt+s", voice_once)
-        log("Global voice hotkey: Ctrl+Alt+S")
+        keyboard.add_hotkey("ctrl+alt+s", voice_session)
+        log("Global voice hotkey: Ctrl+Alt+S (continuous voice mode)")
     except Exception as exc:
         log(f"Global hotkey disabled: {exc}")
 
@@ -960,22 +1043,16 @@ def relay_result(status: str, message: str) -> None:
 
 
 def interactive() -> None:
-    """Keep SANVI in an active conversational command session.
-
-    The session remains open until the operator says/types "Good night".
-    Each completed command is followed by a prompt for the next command,
-    and recent task context is retained so follow-up commands can refer to
-    the previous action.
-    """
+    """Keep SANVI active for text and voice commands until Good night."""
     log("Native SANVI controller is running.")
     log("Active conversation mode is ON.")
-    log("Give SANVI a command. After every command, SANVI will ask for the next one.")
-    log("Say or type 'Good night' to end the active SANVI session.")
+    log("Type a command, or press Ctrl+Alt+S for continuous voice mode.")
+    log("After every completed command SANVI asks for the next command.")
+    log("Say/type 'Good night' to end the active session.")
     log("Emergency stop: say/type 'stop'. This stops the current task but keeps SANVI active.")
     install_hotkey()
 
-    session_active = True
-    while session_active:
+    while True:
         try:
             command = input("SANVI — What should I do next? ").strip()
         except (EOFError, KeyboardInterrupt):
@@ -985,29 +1062,17 @@ def interactive() -> None:
         if not command:
             continue
 
-        normalized = command.strip().lower()
-        # "Good night" is the explicit conversational-session termination phrase.
-        if normalized in {
-            "good night",
-            "goodnight",
-            "good night sanvi",
-            "goodnight sanvi",
-        }:
+        if _is_good_night(command):
             speak("Good night. SANVI session ended.")
             log("Good night. Active session ended.")
-            session_active = False
-            continue
-
-        # Keep ordinary exit/quit available as a local emergency way to close
-        # the terminal process, but do not advertise it as the normal workflow.
-        if normalized in {"exit", "quit"}:
-            speak("Closing SANVI.")
-            log("SANVI process closed.")
             break
 
+        if re.fullmatch(r"(?:start\s+voice|voice\s+mode|listen)", command, re.I):
+            voice_session()
+            continue
+
         run_command(command)
-        if session_active:
-            log("Ready for your next command.")
+        log("Ready for your next command.")
 
 
 if __name__ == "__main__":
