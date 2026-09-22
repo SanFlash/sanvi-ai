@@ -934,7 +934,7 @@ def _recognize_voice_audio(recognizer: "sr.Recognizer", audio) -> str:
     """Recognize one utterance with the configured locale and a safe fallback."""
     languages = []
     configured = os.getenv("SANVI_VOICE_LANGUAGE", "en-IN").strip() or "en-IN"
-    for language in (configured, "en-US"):
+    for language in (configured, "en-US", "hi-IN"):
         if language not in languages:
             languages.append(language)
     last_error = None
