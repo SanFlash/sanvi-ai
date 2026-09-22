@@ -1746,6 +1746,22 @@ Before allowing SANVI to control an important machine:
 
 SANVI's local voice mode is designed as a **continuous conversation**, not a one-command listener.
 
+### Important: basic commands do not require an AI API key
+
+Commands that SANVI can execute deterministically are handled locally first. For example:
+
+~~~text
+can you open Chrome
+please open Notepad
+could you take a screenshot
+search for Playwright
+open Chrome and search for Playwright
+~~~
+
+These commands do not require OPENAI_API_KEY. The AI planner is only used when the local deterministic executor does not have a direct handler for the request.
+
+If a complex natural-language command needs AI planning, configure either OPENAI_API_KEY or a local Ollama planner as described in the configuration section.
+
 ## Start normal SANVI
 
 From PowerShell:
