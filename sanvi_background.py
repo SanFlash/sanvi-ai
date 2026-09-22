@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import re
 import time
+import traceback
 
 import speech_recognition as sr
 
@@ -119,12 +120,16 @@ def main() -> None:
                 except sr.UnknownValueError:
                     continue
                 except sr.RequestError as exc:
-                    log(f"Speech service error: {exc}")
+                    log(f"ERROR: Speech service error: {exc}")
+                    traceback.print_exc()
+                    speak("Voice error. Retry.")
                     time.sleep(3)
                 except KeyboardInterrupt:
                     break
                 except Exception as exc:
-                    log(f"Background voice service error: {exc}")
+                    log(f"ERROR: Background voice service: {exc}")
+                    traceback.print_exc()
+                    speak("Voice error. Retry.")
                     time.sleep(2)
     finally:
         log("SANVI background voice service stopped.")
