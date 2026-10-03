@@ -8,6 +8,10 @@ import os
 import shlex
 import sanvi_desktop as desktop
 import sanvi_system as system
+try:
+    from sanvi_planner import plan as ai_plan
+except Exception:
+    ai_plan = None
 
 try:
     from dotenv import load_dotenv
@@ -127,7 +131,17 @@ def execute(command: str, on_step=None, allow_dangerous: bool=False) -> str:
             on_step(index, len(steps), step)
         result = _system(step)
         if result is None:
-            result = desktop.execute_one(step, allow_dangerous=allow_dangerous)
+            try:
+                result = desktop.execute_one(step, allow_dangerous=allow_dangerous)
+            except Exception as direct_error:
+                # Natural-language fallback: when deterministic routing cannot
+                # identify the request, let the AI planner map it to safe tools.
+                if ai_plan is None:
+                    raise
+                try:
+                    result = desktop.execute_ai_task(step, allow_dangerous=allow_dangerous)
+                except Exception:
+                    raise direct_error
         results.append(result)
     return "\n".join(results)
 
