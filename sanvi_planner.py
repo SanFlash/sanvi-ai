@@ -38,9 +38,20 @@ def plan(command: str, screenshot_path: str|None=None, context: list[dict[str,st
     key=os.getenv("OPENAI_API_KEY","").strip()
     if not key: raise RuntimeError("No AI planner configured. Set OPENAI_API_KEY, or use SANVI_AI_PROVIDER=ollama.")
     payload={"model":model,"input":[{"role":"system","content":[{"type":"input_text","text":SYSTEM}]},{"role":"user","content":parts}],"text":{"format":{"type":"json_object"}}}
+    last_status = None
     with httpx.Client(timeout=90) as client:
-        r=client.post("https://api.openai.com/v1/responses",headers={"Authorization":"Bearer "+key,"Content-Type":"application/json"},json=payload)
-        r.raise_for_status(); data=r.json()
+        for attempt in range(3):
+            r=client.post("https://api.openai.com/v1/responses",headers={"Authorization":"Bearer "+key,"Content-Type":"application/json"},json=payload)
+            last_status = r.status_code
+            if r.status_code != 429:
+                r.raise_for_status()
+                data=r.json()
+                break
+            if attempt < 2:
+                import time
+                time.sleep(1.5 * (2 ** attempt))
+        else:
+            raise RuntimeError("AI planner rate-limited (HTTP 429). SANVI will use deterministic local commands where possible; try again shortly or configure Ollama for local planning.")
     output=data.get("output_text","")
     if not output:
         chunks=[]
@@ -69,6 +80,8 @@ def describe_image(image_path: str, question: str = "Describe what is visible in
     }
     with httpx.Client(timeout=90) as client:
         r = client.post("https://api.openai.com/v1/responses", headers={"Authorization": "Bearer "+key, "Content-Type": "application/json"}, json=payload)
+        if r.status_code == 429:
+            raise RuntimeError("Camera vision is temporarily rate-limited (HTTP 429). The photo was still captured successfully.")
         r.raise_for_status()
         data = r.json()
     output = data.get("output_text", "")
