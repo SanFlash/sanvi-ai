@@ -17,8 +17,8 @@ echo Installing/updating SANVI local dependencies...
 .venv\Scripts\python.exe -m pip install -r requirements-local.txt
 
 echo.
-echo Starting SANVI native controller...
-echo This window is SANVI. No browser dashboard is required.
+echo Starting SANVI Universal local controller...
+echo Full system, desktop, browser, camera and Android controls are available.
 echo.
-.venv\Scripts\python.exe sanvi_desktop.py
+.venv\Scripts\python.exe sanvi_universal.py
 pause

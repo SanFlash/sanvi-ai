@@ -7,5 +7,5 @@ if not exist ".venv\Scripts\pythonw.exe" (
   exit /b
 )
 
-echo Starting SANVI in background...
+echo Starting SANVI background voice service...
 start "" "%~dp0start_sanvi_hidden.vbs"
