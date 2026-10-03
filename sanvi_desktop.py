@@ -75,8 +75,22 @@ except Exception:
 
 try:
     import cv2
-except Exception:
+    CV2_IMPORT_ERROR = ""
+except Exception as exc:
     cv2 = None
+    CV2_IMPORT_ERROR = f"{type(exc).__name__}: {exc}"
+
+try:
+    import win32con
+    import win32gui
+    import win32process
+except Exception:
+    win32con = win32gui = win32process = None
+
+try:
+    from pywinauto import Desktop as PyWinDesktop
+except Exception:
+    PyWinDesktop = None
 
 try:
     import psutil
@@ -259,11 +273,10 @@ def open_app(name: str) -> str:
                     break
                 time.sleep(0.25)
             if not running:
-                visible = [r for r in _window_rows() if key in r["title"].lower()]
-                if not visible:
-                    raise RuntimeError(
-                        f"'{name}' was requested, but Windows did not report {expected} as running."
-                    )
+                # Some Windows apps (Store apps, Chromium launchers, Electron
+                # shells) start through a broker or change process names. A
+                # successful Popen is therefore not treated as a failed launch.
+                log(f"Launch requested for {name!r}; process {expected} was not yet visible.")
         log(f"INTENT: open_app target={name!r} executable={executable!r}")
         return f"Opened {name}."
 
@@ -466,7 +479,8 @@ def _camera_backends():
 
 def _open_camera_capture(index: int):
     if not cv2:
-        raise RuntimeError("OpenCV is not installed. Run setup_sanvi.bat again.")
+        detail = CV2_IMPORT_ERROR or "unknown import error"
+        raise RuntimeError("OpenCV could not be loaded. " + detail + ". Run setup_sanvi.bat or reinstall compatible NumPy/OpenCV versions.")
     errors = []
     for backend_name, backend in _camera_backends():
         cap = None
@@ -854,6 +868,32 @@ def execute_one(command: str, allow_dangerous: bool = False) -> str:
     m = re.match(r"^(?:list|show)\s+process(?:es)?(?:\s+(.+))?$", x, re.I)
     if m:
         return list_processes(m.group(1) or "")
+
+    if low in {"what window am i in", "which window is active", "active window", "current window"}:
+        return active_window()
+
+    if low in {"list windows", "show windows", "open windows"}:
+        return list_windows()
+
+    m = re.match(r"^(?:focus|switch to|go to) (?:the )?window (?:called |named )?(.+)$", x, re.I)
+    if m:
+        return focus_window(m.group(1).strip())
+
+    m = re.match(r"^(?:focus|switch to|go to) (?:the )?(.+?) (?:window|app)$", x, re.I)
+    if m:
+        return focus_window(m.group(1).strip())
+
+    m = re.match(r"^(?:click|press) (?:the )?(?:button|control|element) (?:called |named )?(.+)$", x, re.I)
+    if m:
+        return ui_click(m.group(1).strip())
+
+    m = re.match(r"^(?:click|press) (?:the )?(.+?) button$", x, re.I)
+    if m:
+        return ui_click(m.group(1).strip())
+
+    m = re.match(r"^type (?:into|in) (?:the )?(?:field|box|input) (?:called |named )?(.+?) (?:the text )?:(.+)$", x, re.I | re.S)
+    if m:
+        return ui_type(m.group(1).strip(), m.group(2).strip())
 
     if low in {"camera vision", "look through camera", "what do you see", "what is in front of camera"}:
         return camera_analyze()
