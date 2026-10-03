@@ -150,6 +150,36 @@ def run_command(command: str) -> bool:
         desktop.relay_result("FAILED", message)
         return False
 
+def system_action(tool, args, confirmed=False):
+    allow = confirmed or _auto_allowed()
+    table = {
+        "system_overview": lambda: system.system_overview(),
+        "privilege_status": lambda: system.privilege_status(),
+        "disk_usage": lambda: system.disk_usage(),
+        "network_overview": lambda: system.network_overview(),
+        "listening_ports": lambda: system.listening_ports(),
+        "services": lambda: system.services(str(args.get("filter_text",""))),
+        "start_service": lambda: system.start_service(str(args.get("name","")), allow),
+        "stop_service": lambda: system.stop_service(str(args.get("name","")), allow),
+        "processes": lambda: system.processes(str(args.get("filter_text",""))),
+        "kill_process": lambda: system.kill_process(str(args.get("name_or_pid","")), allow),
+        "installed_software": lambda: system.installed_software(),
+        "environment_variables": lambda: system.environment_variables(),
+        "set_environment_variable": lambda: system.set_environment_variable(str(args.get("name","")), str(args.get("value","")), str(args.get("scope","User")), allow),
+        "scheduled_tasks": lambda: system.scheduled_tasks(str(args.get("filter_text",""))),
+        "startup_items": lambda: system.startup_items(),
+        "event_logs": lambda: system.event_logs(str(args.get("log_name","System")), int(args.get("count",30))),
+        "firewall_rules": lambda: system.firewall_rules(),
+        "set_firewall_rule": lambda: system.set_firewall_rule(str(args.get("name","")), bool(args.get("enabled",True)), allow),
+        "power_plan": lambda: system.power_plan(),
+        "set_power_plan": lambda: system.set_power_plan(str(args.get("plan","")), allow),
+        "clear_temp": lambda: system.clear_temp(bool(args.get("dry_run",True)), allow),
+        "shutdown": lambda: system.shutdown(False, allow),
+        "restart": lambda: system.shutdown(True, allow),
+    }
+    handler = table.get(tool)
+    return handler() if handler else None
+
 _desktop_ai_action = desktop.execute_ai_action
 
 def _universal_ai_action(tool, args, original_command, allow_dangerous=False):
