@@ -69,6 +69,39 @@ if errorlevel 1 (
 )
 
 echo.
+echo Verifying Windows desktop-control stack...
+.venv\Scripts\python.exe -c "import win32gui, win32process; import pywinauto; print('pywin32: OK'); print('pywinauto:', pywinauto.__version__ if hasattr(pywinauto,'__version__') else 'installed')"
+if errorlevel 1 (
+  echo ERROR: Windows UI automation dependencies are not working.
+  echo Repairing pywin32 and pywinauto...
+  .venv\Scripts\python.exe -m pip install --force-reinstall --no-cache-dir "pywin32>=308,<310" "pywinauto>=0.6.9,<1"
+  if errorlevel 1 (
+    echo ERROR: Could not repair Windows UI automation dependencies.
+    pause
+    exit /b 1
+  )
+)
+
+.venv\Scripts\python.exe -c "import cv2; import numpy; print('OpenCV:', cv2.__version__); print('NumPy:', numpy.__version__); print('OpenCV import: OK')"
+if errorlevel 1 (
+  echo ERROR: OpenCV could not be imported.
+  echo The exact Python import failure above is the important diagnostic.
+  echo Reinstalling OpenCV and NumPy once...
+  .venv\Scripts\python.exe -m pip install --force-reinstall --no-cache-dir "numpy>=2,<3" "opencv-python>=4.10,<5"
+  if errorlevel 1 (
+    echo ERROR: OpenCV/NumPy repair failed.
+    pause
+    exit /b 1
+  )
+  .venv\Scripts\python.exe -c "import cv2; import numpy; print('OpenCV:', cv2.__version__); print('NumPy:', numpy.__version__); print('OpenCV import: OK')"
+  if errorlevel 1 (
+    echo ERROR: OpenCV still cannot be imported after repair.
+    pause
+    exit /b 1
+  )
+)
+
+echo.
 echo Installing Playwright Chromium...
 .venv\Scripts\python.exe -m playwright install chromium
 if errorlevel 1 (
