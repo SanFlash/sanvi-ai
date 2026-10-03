@@ -16,11 +16,11 @@ import traceback
 
 import speech_recognition as sr
 
+from sanvi_universal import run_command
 from sanvi_desktop import (
     _is_good_night,
     _strip_wake_phrase,
     log,
-    run_command,
     speak,
 )
 
