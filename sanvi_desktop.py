@@ -246,17 +246,24 @@ def open_app(name: str) -> str:
                 f"Expected executable: {command[0]}"
             )
         subprocess.Popen([executable], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        time.sleep(0.7)
         expected = Path(executable).name.lower()
         if psutil:
-            running = any(
-                str(getattr(proc.info, "name", "") or "").lower() == expected
-                for proc in psutil.process_iter(["name"])
-            )
-            if not running:
-                raise RuntimeError(
-                    f"'{name}' was requested, but Windows did not report {expected} as running."
+            deadline = time.time() + 5.0
+            running = False
+            while time.time() < deadline:
+                running = any(
+                    str(getattr(proc.info, "name", "") or "").lower() == expected
+                    for proc in psutil.process_iter(["name"])
                 )
+                if running:
+                    break
+                time.sleep(0.25)
+            if not running:
+                visible = [r for r in _window_rows() if key in r["title"].lower()]
+                if not visible:
+                    raise RuntimeError(
+                        f"'{name}' was requested, but Windows did not report {expected} as running."
+                    )
         log(f"INTENT: open_app target={name!r} executable={executable!r}")
         return f"Opened {name}."
 
@@ -740,6 +747,12 @@ def execute_ai_action(tool: str, args: dict, original_command: str, allow_danger
         "android_type": lambda: android_type(str(args.get("text", ""))),
         "android_key": lambda: android_key(str(args.get("key", ""))),
         "android_screenshot": lambda: android_screenshot(),
+        "active_window": lambda: active_window(),
+        "list_windows": lambda: list_windows(),
+        "focus_window": lambda: focus_window(str(args.get("target", ""))),
+        "ui_inspect": lambda: ui_inspect(str(args.get("target", ""))),
+        "ui_click": lambda: ui_click(str(args.get("target", ""))),
+        "ui_type": lambda: ui_type(str(args.get("target", "edit")), str(args.get("text", ""))),
     }
     if tool in {"run_powershell", "run_cmd"}:
         if not re.search(r"\b(powershell|cmd|command|terminal|shell|script)\b", original_command, re.I):
