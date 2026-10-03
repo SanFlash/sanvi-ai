@@ -7,4 +7,5 @@ if not exist ".venv\Scripts\python.exe" (
   exit /b
 )
 
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~dp0.venv\Scripts\python.exe' -ArgumentList '"%~dp0sanvi_desktop.py"' -WorkingDirectory '%~dp0' -Verb RunAs"
+echo Requesting Windows administrator privileges for SANVI...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~dp0.venv\Scripts\python.exe' -ArgumentList '"%~dp0sanvi_universal.py"' -WorkingDirectory '%~dp0' -Verb RunAs"
