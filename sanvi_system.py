@@ -143,7 +143,7 @@ def kill_process(name_or_pid: str, allow_dangerous: bool = False) -> str:
 
 
 def installed_software() -> str:
-    command = """
+    command = r"""
 $paths=@(
  'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
  'HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
@@ -190,7 +190,7 @@ def scheduled_tasks(filter_text: str = "") -> str:
 
 
 def startup_items() -> str:
-    command = """
+    command = r"""
 $items=@()
 $items += Get-CimInstance Win32_StartupCommand | Select-Object Name,Command,Location,User
 $items += Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -ErrorAction SilentlyContinue | Select-Object PSObject.Properties.Name,PSObject.Properties.Value
