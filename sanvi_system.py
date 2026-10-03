@@ -239,7 +239,7 @@ def set_power_plan(plan: str, allow_dangerous: bool = False) -> str:
 
 def clear_temp(dry_run: bool = True, allow_dangerous: bool = False) -> str:
     if dry_run:
-        return _run_ps("$targets=@($env:TEMP,$env:WINDIR+'\\Temp'); $targets | ForEach-Object {{ Get-ChildItem $_ -Force -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum }} | ConvertTo-Json")
+        return _run_ps("$targets=@($env:TEMP,$env:WINDIR+'\\Temp'); $targets | ForEach-Object { Get-ChildItem $_ -Force -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum } | ConvertTo-Json")
     if not allow_dangerous:
         raise PermissionError("Cleaning temporary files requires confirmation.")
     command = """
