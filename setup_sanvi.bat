@@ -49,20 +49,20 @@ echo Installing Playwright Chromium...
 .venv\Scripts\python.exe -m playwright install chromium
 if errorlevel 1 (
   echo.
-  echo ERROR: Playwright Chromium installation failed.
-  echo.
-  echo Try these commands manually:
-  echo   .venv\Scripts\python.exe -m playwright --version
-  echo   .venv\Scripts\python.exe -m playwright install chromium
-  echo.
-  echo If the second command reports WinError 2, verify that Python 3.11
-  echo and the virtual environment are healthy, then recreate .venv:
-  echo   rmdir /s /q .venv
-  echo   py -3.11 -m venv .venv
-  echo   .venv\Scripts\python.exe -m pip install -r requirements-local.txt
-  echo   .venv\Scripts\python.exe -m playwright install chromium
-  pause
-  exit /b 1
+  echo Playwright install failed. Repairing the Playwright package...
+  .venv\Scripts\python.exe -m pip install --force-reinstall --no-cache-dir "playwright>=1.55,<2"
+  if errorlevel 1 (
+    echo ERROR: Could not reinstall Playwright.
+    pause
+    exit /b 1
+  )
+  .venv\Scripts\python.exe -m playwright install chromium
+  if errorlevel 1 (
+    echo ERROR: Playwright Chromium installation still failed.
+    echo Run repair_playwright.bat and review its diagnostics.
+    pause
+    exit /b 1
+  )
 )
 
 echo.
