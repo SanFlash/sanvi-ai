@@ -1110,6 +1110,24 @@ def execute_one(command: str, allow_dangerous: bool = False) -> str:
 
     if low in {"take screenshot", "screenshot", "capture screen"}:
         return screenshot()
+\n    if low in {"scroll down", "scroll downward", "go down", "page down"}:
+        return scroll_mouse(-6)
+
+    if low in {"scroll up", "scroll upward", "go up", "page up"}:
+        return scroll_mouse(6)
+
+    if low in {"click first link", "open first link", "select first link"}:
+        # Browser-safe keyboard fallback; avoids consuming the AI planner for a
+        # common request when the API is rate-limited.
+        press_keys("tab")
+        press_keys("enter")
+        return "Activated the currently focused link/control."
+
+    if low in {"click first button", "press first button", "activate first button"}:
+        press_keys("tab")
+        press_keys("enter")
+        return "Activated the currently focused button/control."
+
 
     if low.startswith("run powershell:"):
         return powershell(x.split(":", 1)[1].strip())
