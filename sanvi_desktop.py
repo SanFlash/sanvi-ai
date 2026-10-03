@@ -642,13 +642,17 @@ def normalize_hinglish(command: str) -> str:
     x = command.strip()
     # Users should not need command syntax. Example: "can you open Chrome" -> "open Chrome".
     x = re.sub(
-        r"^\s*(?:hey\s+sanvi[,:;.!-]*\s*)?(?:can\s+you|could\s+you|would\s+you|will\s+you|please|pls)\s+",
+        r"^\s*(?:hey\s+(?:sanvi|shanti)[,:;.!-]*\s*)?(?:can\s+you|could\s+you|would\s+you|will\s+you|please|pls)\s+",
         "",
         x,
         flags=re.I,
     ).strip()
     low = x.lower().strip()
     replacements = [
+        # Common natural camera requests in English/Hinglish.
+        (r"^(?:camera|cam)\s+(?:khol|kholo|open karo)\s+(?:aur|and)\s+(?:photo|pic|picture|image)\s+(?:lo|le lo|kheecho|khicho|click karo)$", "open camera and take a photo"),
+        (r"^(?:camera|cam)\s+(?:khol|kholo|open karo)\s+(?:aur|and)\s+(?:meri|my)\s+(?:photo|pic|picture|image)\s+(?:lo|le lo|kheecho|khicho|click karo)$", "open camera and take a photo of me"),
+        (r"^(?:meri|my)\s+(?:photo|pic|picture|image)\s+(?:lo|le lo|kheecho|khicho|click karo)$", "take a photo of me"),
         (r"^(?:chrome|google chrome)\s+(?:khol|kholo|open karo|chalao)$", "open Chrome"),
         (r"^(?:notepad)\s+(?:khol|kholo|open karo)$", "open Notepad"),
         (r"^(?:calculator|calc)\s+(?:khol|kholo|open karo)$", "open Calculator"),
