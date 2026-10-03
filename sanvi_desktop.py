@@ -677,6 +677,11 @@ def split_steps(command: str) -> list[str]:
     normalized = command.strip().rstrip(".!?")
     
     patterns = [
+        # Camera requests are common enough to route deterministically even when no AI key is configured.
+        (r"^(?:open|launch|start)\s+(camera|windows camera|camera app)\s+and\s+(?:then\s+)?(?:take|capture|click)\s+(?:a\s+)?(?:photo|picture|image)(?:\s+of\s+me|\s+myself|\s+my\s+image)?$",
+         lambda m: ["open camera", "camera photo"]),
+        (r"^(?:open|launch|start)\s+(camera|windows camera|camera app)\s+and\s+(?:then\s+)?capture\s+(?:my\s+)?image$",
+         lambda m: ["open camera", "camera photo"]),
         (r"^(open|launch|start)\s+(chrome|google chrome|edge|microsoft edge|browser)\s+and\s+search\s+(?:for\s+)?(.+)$",
          lambda m: [f"open {m.group(2)}", f"search for {m.group(3)}"]),
         (r"^(open|launch|start)\s+(.+?)\s+and\s+(?:then\s+)?(?:search|google)\s+(?:for\s+)?(.+)$",
@@ -841,6 +846,28 @@ def execute_one(command: str, allow_dangerous: bool = False) -> str:
 
     if low in {"open camera", "launch camera", "start camera"}:
         return open_windows_camera()
+
+    # Natural camera phrases should work without an external AI planner.
+    if low in {
+        "capture my image",
+        "capture my photo",
+        "take my photo",
+        "take my picture",
+        "take a photo",
+        "take a picture",
+        "take a photo of me",
+        "take a picture of me",
+        "click my photo",
+        "click a photo",
+    }:
+        return camera_photo()
+
+    m = re.match(
+        r"^(?:camera\s+)?(?:take|capture|click)\s+(?:a\s+)?(?:photo|picture|image)(?:\s+of\s+(?:me|myself)|\s+my\s+(?:photo|picture|image))?$",
+        x, re.I
+    )
+    if m:
+        return camera_photo()
 
     m = re.match(r"^camera\s+(?:photo|capture)(?:\s+(\d+))?(?:\s+(.+))?$", x, re.I)
     if m:
