@@ -14,14 +14,29 @@ if errorlevel 1 (
   exit /b 1
 )
 
-py -3.11 -m venv .venv
+py -3.11 -c "import sys; print(sys.executable)"
 if errorlevel 1 (
-  echo Could not create Python 3.11 environment.
+  echo Python 3.11 was not found.
   pause
   exit /b 1
 )
 
+if not exist ".venv\Scripts\python.exe" (
+  py -3.11 -m venv .venv
+  if errorlevel 1 (
+    echo Could not create Python 3.11 environment.
+    pause
+    exit /b 1
+  )
+)
+
 .venv\Scripts\python.exe -m pip install --upgrade pip
+if errorlevel 1 (
+  echo pip upgrade failed.
+  pause
+  exit /b 1
+)
+
 .venv\Scripts\python.exe -m pip install -r requirements-local.txt
 if errorlevel 1 (
   echo Dependency installation failed.
@@ -29,7 +44,35 @@ if errorlevel 1 (
   exit /b 1
 )
 
+echo.
+echo Installing Playwright Chromium...
 .venv\Scripts\python.exe -m playwright install chromium
+if errorlevel 1 (
+  echo.
+  echo ERROR: Playwright Chromium installation failed.
+  echo.
+  echo Try these commands manually:
+  echo   .venv\Scripts\python.exe -m playwright --version
+  echo   .venv\Scripts\python.exe -m playwright install chromium
+  echo.
+  echo If the second command reports WinError 2, verify that Python 3.11
+  echo and the virtual environment are healthy, then recreate .venv:
+  echo   rmdir /s /q .venv
+  echo   py -3.11 -m venv .venv
+  echo   .venv\Scripts\python.exe -m pip install -r requirements-local.txt
+  echo   .venv\Scripts\python.exe -m playwright install chromium
+  pause
+  exit /b 1
+)
+
+echo.
+echo Verifying Playwright Chromium...
+.venv\Scripts\python.exe -c "from pathlib import Path; from playwright.sync_api import sync_playwright; p=sync_playwright().start(); b=p.chromium.executable_path; print('Chromium:', b); assert Path(b).exists(), b; p.stop()"
+if errorlevel 1 (
+  echo ERROR: Playwright Chromium was not installed correctly.
+  pause
+  exit /b 1
+)
 
 if not exist ".env" (
   copy /Y ".env.agent.example" ".env" >nul
