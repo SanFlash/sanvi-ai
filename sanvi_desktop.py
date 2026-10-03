@@ -298,6 +298,118 @@ def open_app(name: str) -> str:
     )
 
 
+
+def _window_rows() -> list[dict[str, str | int]]:
+    if not win32gui:
+        return []
+    rows=[]
+    def callback(hwnd, _extra):
+        try:
+            if not win32gui.IsWindowVisible(hwnd): return
+            title=win32gui.GetWindowText(hwnd).strip()
+            if not title: return
+            pid=0
+            if win32process:
+                _,pid=win32process.GetWindowThreadProcessId(hwnd)
+            rows.append({"hwnd":int(hwnd),"pid":int(pid),"title":title})
+        except Exception: pass
+    win32gui.EnumWindows(callback,None)
+    return rows
+
+
+def active_window() -> str:
+    if not win32gui:
+        raise RuntimeError("Windows UI control requires pywin32. Run setup_sanvi.bat.")
+    hwnd=win32gui.GetForegroundWindow()
+    pid=0
+    if win32process and hwnd:
+        try: _,pid=win32process.GetWindowThreadProcessId(hwnd)
+        except Exception: pass
+    return json.dumps({"hwnd":int(hwnd or 0),"pid":int(pid),"title":win32gui.GetWindowText(hwnd).strip()},ensure_ascii=False)
+
+
+def list_windows() -> str:
+    rows=_window_rows()
+    if not rows: raise RuntimeError("No visible windows found, or pywin32 is unavailable.")
+    return json.dumps(rows[:100],ensure_ascii=False,indent=2)
+
+
+def _find_window(target: str):
+    if not win32gui: raise RuntimeError("Windows UI control requires pywin32. Run setup_sanvi.bat.")
+    needle=re.sub(r"\\s+"," ",target.strip().lower())
+    if not needle: return win32gui.GetForegroundWindow()
+    rows=_window_rows()
+    exact=[r for r in rows if r["title"].lower()==needle]
+    partial=[r for r in rows if needle in r["title"].lower()]
+    if not (exact or partial): raise ValueError(f"Window not found: {target}")
+    return int((exact or partial)[0]["hwnd"])
+
+
+def focus_window(target: str) -> str:
+    hwnd=_find_window(target)
+    try:
+        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE if win32con else 9)
+        win32gui.SetForegroundWindow(hwnd)
+    except Exception as exc:
+        raise RuntimeError(f"Could not focus window '{target}': {exc}")
+    time.sleep(0.2)
+    return active_window()
+
+
+def _uia_window(target: str=""):
+    if not PyWinDesktop: raise RuntimeError("UI Automation requires pywinauto. Run setup_sanvi.bat.")
+    hwnd=_find_window(target) if target else win32gui.GetForegroundWindow()
+    return PyWinDesktop(backend="uia").window(handle=hwnd)
+
+
+def ui_inspect(target: str="") -> str:
+    window=_uia_window(target)
+    try: controls=window.descendants()
+    except Exception as exc: raise RuntimeError(f"Could not inspect UI: {exc}")
+    rows=[]
+    for control in controls[:250]:
+        try:
+            info=control.element_info
+            name=(info.name or "").strip(); ctype=(info.control_type or "").strip(); aid=(info.automation_id or "").strip()
+            if name or aid: rows.append({"type":ctype,"name":name[:160],"automation_id":aid[:120]})
+        except Exception: pass
+    return json.dumps(rows,ensure_ascii=False,indent=2)
+
+
+def _find_uia_control(window,target: str):
+    needle=target.strip()
+    if not needle: raise ValueError("UI target cannot be empty.")
+    for kwargs in ({"title":needle},{"auto_id":needle}):
+        try:
+            c=window.child_window(**kwargs)
+            if c.exists(timeout=1): return c
+        except Exception: pass
+    try:
+        for c in window.descendants():
+            info=c.element_info; name=(info.name or "").strip(); aid=(info.automation_id or "").strip()
+            if needle.lower() in name.lower() or needle.lower()==aid.lower(): return c
+    except Exception: pass
+    raise ValueError(f"UI control not found: {target}")
+
+
+def ui_click(target: str) -> str:
+    control=_find_uia_control(_uia_window(),target)
+    try: control.click_input()
+    except Exception:
+        try: control.invoke()
+        except Exception as exc: raise RuntimeError(f"Could not click '{target}': {exc}")
+    return f"Clicked UI control '{target}'."
+
+
+def ui_type(target: str,text: str) -> str:
+    control=_find_uia_control(_uia_window(),target)
+    try:
+        control.set_focus()
+        control.type_keys("^a",set_foreground=True)
+        control.type_keys(text,with_spaces=True,set_foreground=True)
+    except Exception as exc: raise RuntimeError(f"Could not type into '{target}': {exc}")
+    return f"Typed into UI control '{target}'."
+
 def close_app(name: str) -> str:
     key = name.strip().lower()
     exe = APP_ALIASES.get(key, [f"{name}.exe"])[0]
