@@ -1613,6 +1613,27 @@ SANVI is intended to be a powerful local computer-use agent. The native runtime 
 
 For genuinely broad arbitrary GUI tasks, the long-term architecture should combine deterministic Windows UI Automation/accessibility APIs, Playwright, Android UiAutomator2/Appium, OCR, screenshots, process control, and verified tool results. No single GUI automation library can guarantee control of every application.
 
+# System-Wide Windows Control
+
+SANVI's native Windows runtime now has a dedicated system-wide control layer in addition to PyAutoGUI:
+
+- enumerate visible Windows and identify the current foreground application;
+- focus a requested application window;
+- inspect Windows UI Automation (UIA) controls through pywinauto;
+- click UI controls by visible text instead of relying only on screen coordinates;
+- type into supported UIA edit controls;
+- combine UIA with screenshots, mouse/keyboard input, process control and PowerShell/CMD tools;
+- continue controlling a target application after another application was previously in use.
+
+A request such as 'while I am in VS Code, open Chrome and work there' can therefore be handled as a sequence of window selection, UI inspection, interaction and verification rather than assuming SANVI's own console is the active application.
+
+For AI-planned GUI tasks, SANVI can use the active_window, list_windows, focus_window, ui_inspect, ui_click, and ui_type tools.
+
+## Windows security boundary
+
+System-wide control does not mean bypassing Windows security. Windows can prevent a normal process from interacting with elevated applications or the secure desktop. When an operation genuinely requires elevation, run SANVI with the normal Windows UAC prompt using start_sanvi_admin.bat. SANVI does not bypass UAC, passwords, MFA/OTP, CAPTCHA, antivirus/EDR controls, or the Windows secure desktop.
+
+For applications that expose little or no UI Automation information, SANVI can fall back to foreground activation plus keyboard/mouse/screenshot-based automation. That fallback may temporarily change the active window because Windows input is inherently tied to the interactive desktop.
 # Current Limitations
 
 SANVI is a broad computer-use framework, but it should not be described as an unrestricted autonomous computer operator.
