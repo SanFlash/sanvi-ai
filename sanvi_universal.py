@@ -150,6 +150,16 @@ def run_command(command: str) -> bool:
         desktop.relay_result("FAILED", message)
         return False
 
+_desktop_ai_action = desktop.execute_ai_action
+
+def _universal_ai_action(tool, args, original_command, allow_dangerous=False):
+    result = system_action(tool, args if isinstance(args, dict) else {}, allow_dangerous)
+    if result is not None:
+        return result
+    return _desktop_ai_action(tool, args, original_command, allow_dangerous)
+
+desktop.execute_ai_action = _universal_ai_action
+
 desktop.run_command = run_command
 
 if __name__ == "__main__":
